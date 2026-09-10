@@ -1,0 +1,20 @@
+server:
+  port: ${PORT:8080}
+
+spring:
+  application:
+    name: noduq-backend
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USERNAME:postgres}
+    password: ${DATABASE_PASSWORD}
+
+noduq:
+  supabase:
+    url: ${SUPABASE_URL:https://gthbmxvefblwajeposrx.supabase.co}
+    service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
+  employee:
+    jwt-secret: ${EMPLOYEE_JWT_SECRET:local-dev-employee-jwt-secret-key}
+    session-days: 30
+    max-login-attempts: 8
+    lockout-minutes: 15

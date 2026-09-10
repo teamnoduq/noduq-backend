@@ -1,0 +1,58 @@
+{
+  "sms": {
+    "qrPaymentSenders": ["85540"],
+    "knownBancolombiaSenders": [
+      "85540",
+      "85630",
+      "85784",
+      "87400",
+      "891333",
+      "891602",
+      "87554"
+    ],
+    "notes": {
+      "85540": "Comprobante de pago QR en la práctica (Colombia).",
+      "891333": "Alerta para responder sí/no. No es el comprobante del QR.",
+      "891602": "Alerta de seguridad. No es el comprobante del QR.",
+      "87554": "Aviso de fraude. No está en la FAQ de transacción desconocida."
+    }
+  },
+  "email": {
+    "qrPaymentFrom": [
+      {
+        "address": "alertasynotificaciones@an.notificacionesbancolombia.com",
+        "displayName": "Alertas y Notificaciones",
+        "domain": "an.notificacionesbancolombia.com",
+        "added": "2025-09",
+        "source": "MVP"
+      },
+      {
+        "address": "alertasynotificaciones@notificacionesbancolombia.com",
+        "displayName": "Alertas y Notificaciones",
+        "domain": "notificacionesbancolombia.com",
+        "added": "2025-09",
+        "source": "MVP"
+      },
+      {
+        "address": "alertasynotificaciones@ayn.notificacionesbancolombia.com",
+        "displayName": "Alertas y Notificaciones",
+        "domain": "ayn.notificacionesbancolombia.com",
+        "added": "2026-09-10",
+        "source": "Bancolombia cambio de remitente"
+      }
+    ],
+    "securityOnlyDoNotTreatAsQrPayment": [
+      "validaciondeseguridad@notificacionesbancolombia.com"
+    ],
+    "doNotUseToValidatePaymentUnlessSeenInTheWild": [
+      "alertasynotificaciones@bancolombia.com",
+      "informacion@mailbancolombia.com.co"
+    ]
+  },
+  "filter": {
+    "acceptAnyQrPaymentFromAddress": true,
+    "requireQrHintInBody": true,
+    "store": ["payerName", "amount", "occurredAt"],
+    "neverStore": ["accountDigits", "key", "dudas"]
+  }
+}
