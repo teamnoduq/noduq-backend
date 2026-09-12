@@ -10,6 +10,8 @@ spring:
     password: ${DATABASE_PASSWORD}
 
 noduq:
+  cors:
+    origins: ${NODUQ_CORS_ORIGINS:http://localhost:3000,http://127.0.0.1:3000,https://noduq.app,https://www.noduq.app}
   supabase:
     url: ${SUPABASE_URL:https://gthbmxvefblwajeposrx.supabase.co}
     service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
