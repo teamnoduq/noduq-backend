@@ -14,6 +14,7 @@ noduq:
     origins: ${NODUQ_CORS_ORIGINS:http://localhost:3000,http://127.0.0.1:3000,https://noduq.app,https://www.noduq.app}
   supabase:
     url: ${SUPABASE_URL:https://gthbmxvefblwajeposrx.supabase.co}
+    jwt-secret: ${SUPABASE_JWT_SECRET:}
     service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
   employee:
     jwt-secret: ${EMPLOYEE_JWT_SECRET:local-dev-employee-jwt-secret-key}

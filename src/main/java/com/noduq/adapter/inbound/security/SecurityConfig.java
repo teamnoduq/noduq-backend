@@ -12,8 +12,6 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.security.oauth2.jwt.JwtValidators;
-import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -33,11 +31,10 @@ public class SecurityConfig {
 	}
 
 	@Bean
-	JwtDecoder jwtDecoder(@Value("${noduq.supabase.url}") String supabaseUrl) {
-		String issuer = supabaseUrl.replaceAll("/$", "") + "/auth/v1";
-		NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(issuer + "/.well-known/jwks.json").build();
-		decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(issuer));
-		return decoder;
+	JwtDecoder jwtDecoder(
+			@Value("${noduq.supabase.url}") String supabaseUrl,
+			@Value("${noduq.supabase.jwt-secret:}") String jwtSecret) {
+		return new SupabaseJwtDecoder(supabaseUrl, jwtSecret);
 	}
 
 	@Bean
