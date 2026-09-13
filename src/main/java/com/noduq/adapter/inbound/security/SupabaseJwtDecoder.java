@@ -1,17 +1,13 @@
 package com.noduq.adapter.inbound.security;
 
 import com.nimbusds.jose.JOSEException;
-import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.crypto.ECDSAVerifier;
 import com.nimbusds.jose.crypto.MACVerifier;
-import com.nimbusds.jose.jwk.source.JWKSource;
-import com.nimbusds.jose.jwk.source.RemoteJWKSet;
-import com.nimbusds.jose.proc.BadJOSEException;
-import com.nimbusds.jose.proc.JWSVerificationKeySelector;
-import com.nimbusds.jose.proc.SecurityContext;
+import com.nimbusds.jose.jwk.ECKey;
+import com.nimbusds.jose.jwk.JWK;
+import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
-import com.nimbusds.jwt.proc.BadJWTException;
-import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -22,12 +18,9 @@ import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
-import java.net.MalformedURLException;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
 import java.time.Instant;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,18 +28,18 @@ import java.util.Map;
 /**
  * User access tokens are ES256 after the JWT Signing Keys migration.
  * Spring's Jwt type cannot store Supabase nested claims, so the signature is
- * verified with Nimbus/JWKS (or GoTrue) and only scalar claims are kept.
+ * verified with JWKS (or GoTrue) and only scalar claims are kept.
  */
 final class SupabaseJwtDecoder implements JwtDecoder {
 
 	private static final Logger log = LoggerFactory.getLogger(SupabaseJwtDecoder.class);
 
-	private final DefaultJWTProcessor<SecurityContext> jwksProcessor;
 	private final byte[] hmacSecret;
 	private final String supabaseUrl;
 	private final String anonKey;
 	private final String serviceRoleKey;
 	private final RestClient restClient;
+	private volatile JWKSet jwkSet;
 
 	SupabaseJwtDecoder(String supabaseUrl, String jwtSecret, String serviceRoleKey) {
 		this(supabaseUrl, jwtSecret, "", serviceRoleKey, restClient());
@@ -67,12 +60,17 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 		this.serviceRoleKey = serviceRoleKey == null ? "" : serviceRoleKey;
 		this.restClient = restClient;
 		this.hmacSecret = hmacSecret(jwtSecret);
-		this.jwksProcessor = jwksProcessor(this.supabaseUrl);
+		log.info("SupabaseJwtDecoder ready url={} hmac={} anon={} serviceRole={}",
+				this.supabaseUrl,
+				hmacSecret != null,
+				!this.anonKey.isBlank(),
+				!this.serviceRoleKey.isBlank());
 	}
 
 	@Override
 	public Jwt decode(String token) throws JwtException {
 		String alg = algorithm(token);
+		log.info("Supabase access token alg={}", alg);
 		if (hmac(alg)) {
 			if (hmacSecret != null) {
 				try {
@@ -113,12 +111,57 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 
 	private Jwt verifyJwks(String token) {
 		try {
-			jwksProcessor.process(token, null);
-			return springJwt(SignedJWT.parse(token));
+			SignedJWT parsed = SignedJWT.parse(token);
+			ECKey key = es256Key(parsed.getHeader().getKeyID());
+			if (!parsed.verify(new ECDSAVerifier(key))) {
+				throw new JwtException("Supabase ES256 signature is invalid");
+			}
+			return springJwt(parsed);
 		} catch (JwtException ex) {
 			throw ex;
-		} catch (BadJOSEException | JOSEException | ParseException | RuntimeException ex) {
+		} catch (JOSEException | ParseException | RuntimeException ex) {
 			throw new JwtException("Supabase JWKS access token was rejected", ex);
+		}
+	}
+
+	private ECKey es256Key(String kid) {
+		JWKSet set = jwkSet();
+		JWK jwk = kid != null ? set.getKeyByKeyId(kid) : null;
+		if (jwk == null && set.getKeys().size() == 1) {
+			jwk = set.getKeys().getFirst();
+		}
+		if (jwk instanceof ECKey ecKey) {
+			return ecKey;
+		}
+		throw new JwtException("Supabase JWKS has no ES256 key for kid=" + kid);
+	}
+
+	private JWKSet jwkSet() {
+		JWKSet cached = this.jwkSet;
+		if (cached != null) {
+			return cached;
+		}
+		synchronized (this) {
+			if (this.jwkSet != null) {
+				return this.jwkSet;
+			}
+			String body = restClient.get()
+					.uri(supabaseUrl + "/auth/v1/.well-known/jwks.json")
+					.retrieve()
+					.body(String.class);
+			if (body == null || body.isBlank()) {
+				throw new JwtException("Supabase JWKS was empty");
+			}
+			try {
+				this.jwkSet = JWKSet.parse(body);
+			} catch (ParseException ex) {
+				try {
+					this.jwkSet = JWKSet.parse(stripWebCryptoFields(body));
+				} catch (ParseException retry) {
+					throw new JwtException("Supabase JWKS could not be parsed", retry);
+				}
+			}
+			return this.jwkSet;
 		}
 	}
 
@@ -163,6 +206,13 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 		return key != null && key.startsWith("eyJ");
 	}
 
+	private static String stripWebCryptoFields(String body) {
+		return body.replaceAll("\"ext\"\\s*:\\s*true\\s*,", "")
+				.replaceAll(",\\s*\"ext\"\\s*:\\s*true", "")
+				.replaceAll("\"key_ops\"\\s*:\\s*\\[[^\\]]*\\]\\s*,", "")
+				.replaceAll(",\\s*\"key_ops\"\\s*:\\s*\\[[^\\]]*\\]", "");
+	}
+
 	private static Jwt springJwt(SignedJWT parsed) throws ParseException {
 		JWTClaimsSet set = parsed.getJWTClaimsSet();
 		Instant issuedAt = set.getIssueTime() != null ? set.getIssueTime().toInstant() : Instant.now();
@@ -184,7 +234,7 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 		Map<String, Object> claims = new HashMap<>();
 		claims.put("sub", set.getSubject());
 		if (set.getIssuer() != null) {
-			claims.put("iss", set.getIssuer().toString());
+			claims.put("iss", set.getIssuer());
 		}
 		if (set.getAudience() != null && !set.getAudience().isEmpty()) {
 			claims.put("aud", List.copyOf(set.getAudience()));
@@ -211,28 +261,10 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 		return jwtSecret.getBytes(StandardCharsets.UTF_8);
 	}
 
-	private static DefaultJWTProcessor<SecurityContext> jwksProcessor(String supabaseUrl) {
-		try {
-			JWKSource<SecurityContext> jwkSource =
-					new RemoteJWKSet<>(URI.create(supabaseUrl + "/auth/v1/.well-known/jwks.json").toURL());
-			DefaultJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();
-			processor.setJWSKeySelector(new JWSVerificationKeySelector<>(JWSAlgorithm.ES256, jwkSource));
-			processor.setJWTClaimsSetVerifier((claims, context) -> {
-				Date exp = claims.getExpirationTime();
-				if (exp != null && exp.toInstant().isBefore(Instant.now().minusSeconds(30))) {
-					throw new BadJWTException("Expired JWT");
-				}
-			});
-			return processor;
-		} catch (MalformedURLException ex) {
-			throw new IllegalArgumentException("Invalid SUPABASE_URL", ex);
-		}
-	}
-
 	private static RestClient restClient() {
 		SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-		factory.setConnectTimeout(3000);
-		factory.setReadTimeout(3000);
+		factory.setConnectTimeout(4000);
+		factory.setReadTimeout(4000);
 		return RestClient.builder().requestFactory(factory).build();
 	}
 

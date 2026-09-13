@@ -58,14 +58,14 @@ public class SecurityConfig {
 
 	@Bean
 	@Order(2)
-	SecurityFilterChain ownerApi(HttpSecurity http) throws Exception {
+	SecurityFilterChain ownerApi(HttpSecurity http, JwtDecoder jwtDecoder) throws Exception {
 		http.securityMatcher("/v1/**")
 				.csrf(AbstractHttpConfigurer::disable)
 				.cors(Customizer.withDefaults())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
 				.oauth2ResourceServer(oauth -> oauth
-						.jwt(Customizer.withDefaults())
+						.jwt(jwt -> jwt.decoder(jwtDecoder))
 						.authenticationEntryPoint(invalidSession()));
 		return http.build();
 	}

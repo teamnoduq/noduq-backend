@@ -86,51 +86,22 @@ class SupabaseJwtDecoderTest {
 
 	@Test
 	void decodesEs256AccessTokensFromJwks() throws Exception {
-		ECKey key = new ECKeyGenerator(Curve.P_256).keyID("kid-1").generate();
-		String token = es256(key, Instant.now().plusSeconds(60), false);
-		HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
-		String jwks = "{\"keys\":[" + key.toPublicJWK().toJSONString() + "]}";
-		server.createContext("/auth/v1/.well-known/jwks.json", exchange -> {
-			byte[] body = jwks.getBytes(StandardCharsets.UTF_8);
-			exchange.getResponseHeaders().add("Content-Type", "application/json");
-			exchange.sendResponseHeaders(200, body.length);
-			exchange.getResponseBody().write(body);
-			exchange.close();
-		});
-		server.start();
-		try {
-			String base = "http://127.0.0.1:" + server.getAddress().getPort();
-			Jwt jwt = new SupabaseJwtDecoder(base, "", "").decode(token);
-			assertEquals("owner-1", jwt.getSubject());
-			assertEquals("owner@example.com", jwt.getClaimAsString("email"));
-		} finally {
-			server.stop(0);
-		}
+		assertEquals("owner-1", decodeEs256(false, false).getSubject());
 	}
 
 	@Test
 	void decodesEs256AccessTokensWithNestedSupabaseClaims() throws Exception {
-		ECKey key = new ECKeyGenerator(Curve.P_256).keyID("kid-1").generate();
-		String token = es256(key, Instant.now().plusSeconds(60), true);
-		HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
-		String jwks = "{\"keys\":[" + key.toPublicJWK().toJSONString() + "]}";
-		server.createContext("/auth/v1/.well-known/jwks.json", exchange -> {
-			byte[] body = jwks.getBytes(StandardCharsets.UTF_8);
-			exchange.getResponseHeaders().add("Content-Type", "application/json");
-			exchange.sendResponseHeaders(200, body.length);
-			exchange.getResponseBody().write(body);
-			exchange.close();
-		});
-		server.start();
-		try {
-			String base = "http://127.0.0.1:" + server.getAddress().getPort();
-			Jwt jwt = new SupabaseJwtDecoder(base, "", "").decode(token);
-			assertEquals("owner-1", jwt.getSubject());
-			assertEquals("owner@example.com", jwt.getClaimAsString("email"));
-			assertEquals("authenticated", jwt.getClaimAsString("role"));
-		} finally {
-			server.stop(0);
-		}
+		Jwt jwt = decodeEs256(true, false);
+		assertEquals("owner-1", jwt.getSubject());
+		assertEquals("owner@example.com", jwt.getClaimAsString("email"));
+		assertEquals("authenticated", jwt.getClaimAsString("role"));
+	}
+
+	@Test
+	void decodesEs256WhenJwksLooksLikeSupabaseWebCrypto() throws Exception {
+		Jwt jwt = decodeEs256(true, true);
+		assertEquals("owner-1", jwt.getSubject());
+		assertEquals("owner@example.com", jwt.getClaimAsString("email"));
 	}
 
 	@Test
@@ -169,6 +140,31 @@ class SupabaseJwtDecoderTest {
 		factory.setConnectTimeout(2000);
 		factory.setReadTimeout(2000);
 		return RestClient.builder().requestFactory(factory).build();
+	}
+
+	private static Jwt decodeEs256(boolean nestedClaims, boolean webCryptoJwks) throws Exception {
+		ECKey key = new ECKeyGenerator(Curve.P_256).keyID("kid-1").generate();
+		String token = es256(key, Instant.now().plusSeconds(60), nestedClaims);
+		HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+		String jwkJson = key.toPublicJWK().toJSONString();
+		if (webCryptoJwks) {
+			jwkJson = jwkJson.substring(0, jwkJson.length() - 1) + ",\"ext\":true,\"key_ops\":[\"verify\"]}";
+		}
+		String jwks = "{\"keys\":[" + jwkJson + "]}";
+		server.createContext("/auth/v1/.well-known/jwks.json", exchange -> {
+			byte[] body = jwks.getBytes(StandardCharsets.UTF_8);
+			exchange.getResponseHeaders().add("Content-Type", "application/json");
+			exchange.sendResponseHeaders(200, body.length);
+			exchange.getResponseBody().write(body);
+			exchange.close();
+		});
+		server.start();
+		try {
+			String base = "http://127.0.0.1:" + server.getAddress().getPort();
+			return new SupabaseJwtDecoder(base, "", "", restClient()).decode(token);
+		} finally {
+			server.stop(0);
+		}
 	}
 
 	private static String hs256(String secret, Instant exp, boolean nestedClaims) throws Exception {
