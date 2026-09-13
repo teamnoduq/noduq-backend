@@ -2,16 +2,20 @@ package com.noduq.adapter.inbound.security;
 
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
@@ -24,9 +28,12 @@ import java.util.Map;
 
 /**
  * Supabase JWKS only publishes ES256, while many access tokens are still HS256.
+ * Spring's JWKS decoder defaults to RS256, so ES256 must be enabled explicitly.
  * Verify HMAC locally when {@code SUPABASE_JWT_SECRET} is set; otherwise ask GoTrue.
  */
 final class SupabaseJwtDecoder implements JwtDecoder {
+
+	private static final Logger log = LoggerFactory.getLogger(SupabaseJwtDecoder.class);
 
 	private final JwtDecoder jwksDecoder;
 	private final JwtDecoder hmacDecoder;
@@ -44,6 +51,7 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 		this.restClient = restClient;
 		OAuth2TokenValidator<Jwt> validator = JwtValidators.createDefault();
 		NimbusJwtDecoder jwks = NimbusJwtDecoder.withJwkSetUri(this.supabaseUrl + "/auth/v1/.well-known/jwks.json")
+				.jwsAlgorithm(SignatureAlgorithm.ES256)
 				.build();
 		jwks.setJwtValidator(validator);
 		this.jwksDecoder = jwks;
@@ -55,17 +63,24 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 		String alg = algorithm(token);
 		if (hmac(alg)) {
 			if (hmacDecoder != null) {
-				return hmacDecoder.decode(token);
+				try {
+					return hmacDecoder.decode(token);
+				} catch (JwtException hmacError) {
+					log.warn("Supabase HS256 local verify failed, asking GoTrue: {}", hmacError.getMessage());
+					return decodeViaGoTrue(token);
+				}
 			}
 			return decodeViaGoTrue(token);
 		}
 		try {
 			return jwksDecoder.decode(token);
 		} catch (JwtException jwksError) {
+			log.warn("Supabase JWKS verify failed alg={}: {}", alg, jwksError.getMessage());
 			if (!serviceRoleKey.isBlank()) {
 				try {
 					return decodeViaGoTrue(token);
-				} catch (JwtException ignored) {
+				} catch (JwtException goTrueError) {
+					log.warn("Supabase GoTrue verify failed: {}", goTrueError.getMessage());
 					throw jwksError;
 				}
 			}
@@ -87,6 +102,8 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 			return parseVerifiedByGoTrue(token);
 		} catch (JwtException ex) {
 			throw ex;
+		} catch (RestClientResponseException ex) {
+			throw new JwtException("Supabase access token was rejected (" + ex.getStatusCode().value() + ")");
 		} catch (ParseException | RuntimeException ex) {
 			throw new JwtException("Supabase access token was rejected", ex);
 		}

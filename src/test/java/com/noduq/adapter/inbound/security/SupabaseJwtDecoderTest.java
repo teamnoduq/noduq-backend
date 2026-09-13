@@ -2,7 +2,11 @@ package com.noduq.adapter.inbound.security;
 
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.crypto.ECDSASigner;
 import com.nimbusds.jose.crypto.MACSigner;
+import com.nimbusds.jose.jwk.Curve;
+import com.nimbusds.jose.jwk.ECKey;
+import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.sun.net.httpserver.HttpServer;
@@ -81,6 +85,30 @@ class SupabaseJwtDecoderTest {
 	}
 
 	@Test
+	void decodesEs256AccessTokensFromJwks() throws Exception {
+		ECKey key = new ECKeyGenerator(Curve.P_256).keyID("kid-1").generate();
+		String token = es256(key, Instant.now().plusSeconds(60));
+		HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+		String jwks = "{\"keys\":[" + key.toPublicJWK().toJSONString() + "]}";
+		server.createContext("/auth/v1/.well-known/jwks.json", exchange -> {
+			byte[] body = jwks.getBytes(StandardCharsets.UTF_8);
+			exchange.getResponseHeaders().add("Content-Type", "application/json");
+			exchange.sendResponseHeaders(200, body.length);
+			exchange.getResponseBody().write(body);
+			exchange.close();
+		});
+		server.start();
+		try {
+			String base = "http://127.0.0.1:" + server.getAddress().getPort();
+			Jwt jwt = new SupabaseJwtDecoder(base, "", "").decode(token);
+			assertEquals("owner-1", jwt.getSubject());
+			assertEquals("owner@example.com", jwt.getClaimAsString("email"));
+		} finally {
+			server.stop(0);
+		}
+	}
+
+	@Test
 	void rejectsHs256WhenSecretAndGoTrueAreMissing() throws Exception {
 		String token = hs256(SECRET, Instant.now().plusSeconds(60), false);
 		assertThrows(JwtException.class,
@@ -110,6 +138,22 @@ class SupabaseJwtDecoderTest {
 		}
 		SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims.build());
 		jwt.sign(new MACSigner(secret.getBytes(StandardCharsets.UTF_8)));
+		return jwt.serialize();
+	}
+
+	private static String es256(ECKey key, Instant exp) throws Exception {
+		SignedJWT jwt = new SignedJWT(
+				new JWSHeader.Builder(JWSAlgorithm.ES256).keyID(key.getKeyID()).build(),
+				new JWTClaimsSet.Builder()
+						.issuer(ISSUER)
+						.subject("owner-1")
+						.audience("authenticated")
+						.expirationTime(Date.from(exp))
+						.issueTime(Date.from(Instant.now()))
+						.claim("email", "owner@example.com")
+						.claim("role", "authenticated")
+						.build());
+		jwt.sign(new ECDSASigner(key));
 		return jwt.serialize();
 	}
 }
