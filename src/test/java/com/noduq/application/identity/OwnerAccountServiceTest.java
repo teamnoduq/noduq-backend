@@ -66,7 +66,7 @@ class OwnerAccountServiceTest {
 		Instant now = Instant.parse("2026-09-10T12:00:00Z");
 		return new OwnerWorkspace(
 				new Profile(profileId, "Dueño", now),
-				new Organization(organizationId, name, null, now),
+				new Organization(organizationId, name, null, "8186", now),
 				new OrganizationMember(UUID.randomUUID(), organizationId, profileId, MemberRole.OWNER, now),
 				List.of());
 	}

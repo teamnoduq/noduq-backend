@@ -21,9 +21,13 @@ public final class IdentityResponses {
 		}
 	}
 
-	public record OrganizationResponse(UUID id, String name, String smsPhone) {
+	public record OrganizationResponse(UUID id, String name, String smsPhone, String merchantLast4) {
 		static OrganizationResponse from(Organization organization) {
-			return new OrganizationResponse(organization.id(), organization.name(), organization.smsPhone());
+			return new OrganizationResponse(
+					organization.id(),
+					organization.name(),
+					organization.smsPhone(),
+					organization.merchantLast4());
 		}
 	}
 

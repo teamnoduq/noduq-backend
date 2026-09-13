@@ -1,5 +1,6 @@
 package com.noduq.application.identity;
 
+import com.noduq.domain.identity.CommerceDetails;
 import com.noduq.domain.identity.IdentityException;
 import com.noduq.domain.identity.OwnerWorkspace;
 import com.noduq.domain.identity.Profile;
@@ -29,9 +30,10 @@ public class OwnerAccountService {
 	@Transactional
 	public OwnerWorkspace bootstrap(UUID profileId, String displayName, String organizationName) {
 		return workspaces.findByProfileId(profileId).orElseGet(() -> {
-			String name = requiredName(organizationName, "ORGANIZATION_NAME_INVALID", "El nombre del local es obligatorio.");
+			String name = requiredName(
+					organizationName, "ORGANIZATION_NAME_INVALID", "El nombre de la organización es obligatorio.");
 			String profileName = displayName == null || displayName.isBlank() ? name : displayName.trim();
-			return workspaces.createOwnerBusiness(profileId, profileName, name, "Principal");
+			return workspaces.createOwnerBusiness(profileId, profileName, name, null, null, "Principal");
 		});
 	}
 
@@ -45,11 +47,17 @@ public class OwnerAccountService {
 	}
 
 	@Transactional
-	public OwnerWorkspace renameOrganization(UUID profileId, String organizationName) {
+	public OwnerWorkspace updateOrganization(
+			UUID profileId, String organizationName, String merchantLast4, String smsPhone) {
 		OwnerWorkspace workspace = requireWorkspace(profileId);
 		workspace.requireOwner();
-		String name = requiredName(organizationName, "ORGANIZATION_NAME_INVALID", "El nombre del local es obligatorio.");
-		workspaces.renameOrganization(workspace.organization().id(), name);
+		String name = requiredName(
+				organizationName, "ORGANIZATION_NAME_INVALID", "El nombre de la organización es obligatorio.");
+		String last4 = merchantLast4 == null || merchantLast4.isBlank()
+				? workspace.organization().merchantLast4()
+				: CommerceDetails.merchantLast4(merchantLast4);
+		String phone = smsPhone == null ? workspace.organization().smsPhone() : CommerceDetails.smsPhone(smsPhone);
+		workspaces.updateOrganization(workspace.organization().id(), name, last4, phone);
 		return requireWorkspace(profileId);
 	}
 
@@ -61,7 +69,7 @@ public class OwnerAccountService {
 		if (confirmation == null || !equalsIgnoreCaseAndSpace(expected, confirmation)) {
 			throw IdentityException.validation(
 					"CONFIRMATION_MISMATCH",
-					"Escribe el nombre del local para borrar la cuenta.");
+					"Escribe el nombre de la organización para borrar la cuenta.");
 		}
 		workspaces.deleteBusiness(workspace.organization().id(), profileId);
 		authUsers.deleteAuthUser(profileId);

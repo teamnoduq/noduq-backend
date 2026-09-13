@@ -46,7 +46,7 @@ public class JdbcOwnerWorkspaceRepository implements OwnerWorkspaceRepository {
 	@Override
 	public Optional<OwnerWorkspace> findByOrganizationId(UUID organizationId) {
 		Organization organization = jdbc.query(
-				"select id, name, sms_phone, created_at from organizations where id = ?",
+				"select id, name, sms_phone, merchant_last4, created_at from organizations where id = ?",
 				rs -> rs.next() ? organization(rs) : null,
 				organizationId);
 		if (organization == null) {
@@ -77,7 +77,13 @@ public class JdbcOwnerWorkspaceRepository implements OwnerWorkspaceRepository {
 	}
 
 	@Override
-	public OwnerWorkspace createOwnerBusiness(UUID profileId, String displayName, String organizationName, String branchName) {
+	public OwnerWorkspace createOwnerBusiness(
+			UUID profileId,
+			String displayName,
+			String organizationName,
+			String merchantLast4,
+			String smsPhone,
+			String branchName) {
 		jdbc.update(
 				"""
 						insert into profiles (id, display_name)
@@ -90,9 +96,11 @@ public class JdbcOwnerWorkspaceRepository implements OwnerWorkspaceRepository {
 				displayName);
 		UUID organizationId = UUID.randomUUID();
 		jdbc.update(
-				"insert into organizations (id, name) values (?, ?)",
+				"insert into organizations (id, name, sms_phone, merchant_last4) values (?, ?, ?, ?)",
 				organizationId,
-				organizationName);
+				organizationName,
+				smsPhone,
+				merchantLast4);
 		jdbc.update(
 				"""
 						insert into organization_members (organization_id, profile_id, role)
@@ -105,7 +113,7 @@ public class JdbcOwnerWorkspaceRepository implements OwnerWorkspaceRepository {
 				"insert into branches (organization_id, name) values (?, ?)",
 				organizationId,
 				branchName);
-		return findByProfileId(profileId).orElseThrow(() -> IdentityException.notFound("No se pudo crear el local."));
+		return findByProfileId(profileId).orElseThrow(() -> IdentityException.notFound("No se pudo crear la organización."));
 	}
 
 	@Override
@@ -118,8 +126,17 @@ public class JdbcOwnerWorkspaceRepository implements OwnerWorkspaceRepository {
 	}
 
 	@Override
-	public void renameOrganization(UUID organizationId, String name) {
-		jdbc.update("update organizations set name = ?, updated_at = now() where id = ?", name, organizationId);
+	public void updateOrganization(UUID organizationId, String name, String merchantLast4, String smsPhone) {
+		jdbc.update(
+				"""
+						update organizations
+						set name = ?, merchant_last4 = ?, sms_phone = ?, updated_at = now()
+						where id = ?
+						""",
+				name,
+				merchantLast4,
+				smsPhone,
+				organizationId);
 	}
 
 	@Override
@@ -143,6 +160,7 @@ public class JdbcOwnerWorkspaceRepository implements OwnerWorkspaceRepository {
 				rs.getObject("id", UUID.class),
 				rs.getString("name"),
 				rs.getString("sms_phone"),
+				rs.getString("merchant_last4"),
 				rs.getObject("created_at", OffsetDateTime.class).toInstant());
 	}
 

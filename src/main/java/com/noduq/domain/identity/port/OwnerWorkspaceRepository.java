@@ -12,11 +12,17 @@ public interface OwnerWorkspaceRepository {
 
 	Optional<OwnerWorkspace> findByOrganizationId(UUID organizationId);
 
-	OwnerWorkspace createOwnerBusiness(UUID profileId, String displayName, String organizationName, String branchName);
+	OwnerWorkspace createOwnerBusiness(
+			UUID profileId,
+			String displayName,
+			String organizationName,
+			String merchantLast4,
+			String smsPhone,
+			String branchName);
 
 	Profile updateDisplayName(UUID profileId, String displayName);
 
-	void renameOrganization(UUID organizationId, String name);
+	void updateOrganization(UUID organizationId, String name, String merchantLast4, String smsPhone);
 
 	void deleteBusiness(UUID organizationId, UUID profileId);
 }

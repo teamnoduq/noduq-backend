@@ -60,7 +60,8 @@ public class OwnerController {
 	IdentityResponses.WorkspaceResponse renameOrganization(
 			@AuthenticationPrincipal Jwt jwt,
 			@RequestBody PatchOrganizationRequest body) {
-		return IdentityResponses.WorkspaceResponse.from(owners.renameOrganization(userId(jwt), body.name()));
+		return IdentityResponses.WorkspaceResponse.from(
+				owners.updateOrganization(userId(jwt), body.name(), body.merchantLast4(), body.smsPhone()));
 	}
 
 	private static UUID userId(Jwt jwt) {
@@ -73,7 +74,7 @@ public class OwnerController {
 	public record PatchMeRequest(String displayName) {
 	}
 
-	public record PatchOrganizationRequest(String name) {
+	public record PatchOrganizationRequest(String name, String merchantLast4, String smsPhone) {
 	}
 
 	public record DeleteAccountRequest(@NotBlank String confirmation) {
