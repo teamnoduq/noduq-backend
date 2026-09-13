@@ -19,6 +19,7 @@ import java.text.ParseException;
 import java.time.Instant;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -99,9 +100,30 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 		if (expiresAt.isBefore(Instant.now().minusSeconds(30))) {
 			throw new JwtException("Supabase access token has expired");
 		}
-		Map<String, Object> headers = new HashMap<>(parsed.getHeader().toJSONObject());
+		Map<String, Object> headers = new HashMap<>();
+		if (parsed.getHeader().getAlgorithm() != null) {
+			headers.put("alg", parsed.getHeader().getAlgorithm().getName());
+		}
+		if (parsed.getHeader().getKeyID() != null) {
+			headers.put("kid", parsed.getHeader().getKeyID());
+		}
+		headers.put("typ", "JWT");
 		Map<String, Object> claims = new HashMap<>();
-		set.getClaims().forEach((key, value) -> claims.put(key, value instanceof Date date ? date.toInstant() : value));
+		claims.put("sub", set.getSubject());
+		if (set.getIssuer() != null) {
+			claims.put("iss", set.getIssuer().toString());
+		}
+		if (set.getAudience() != null && !set.getAudience().isEmpty()) {
+			claims.put("aud", List.copyOf(set.getAudience()));
+		}
+		String email = set.getStringClaim("email");
+		if (email != null && !email.isBlank()) {
+			claims.put("email", email);
+		}
+		String role = set.getStringClaim("role");
+		if (role != null && !role.isBlank()) {
+			claims.put("role", role);
+		}
 		return new Jwt(token, issuedAt, expiresAt, headers, claims);
 	}
 

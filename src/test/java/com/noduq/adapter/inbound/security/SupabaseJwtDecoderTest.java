@@ -16,6 +16,8 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -28,7 +30,7 @@ class SupabaseJwtDecoderTest {
 
 	@Test
 	void decodesLegacyHs256AccessTokens() throws Exception {
-		String token = hs256(SECRET, Instant.now().plusSeconds(60));
+		String token = hs256(SECRET, Instant.now().plusSeconds(60), false);
 		Jwt jwt = new SupabaseJwtDecoder("https://example.supabase.co", SECRET, "").decode(token);
 		assertEquals("owner-1", jwt.getSubject());
 		assertEquals(ISSUER, jwt.getIssuer().toString());
@@ -36,7 +38,7 @@ class SupabaseJwtDecoderTest {
 
 	@Test
 	void asksGoTrueWhenHs256SecretIsMissing() throws Exception {
-		String token = hs256(SECRET, Instant.now().plusSeconds(60));
+		String token = hs256(SECRET, Instant.now().plusSeconds(60), false);
 		HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
 		server.createContext("/auth/v1/user", exchange -> {
 			String auth = exchange.getRequestHeaders().getFirst("Authorization");
@@ -57,8 +59,30 @@ class SupabaseJwtDecoderTest {
 	}
 
 	@Test
+	void goTrueIgnoresNestedSupabaseClaimsSpringCannotStore() throws Exception {
+		String token = hs256(SECRET, Instant.now().plusSeconds(60), true);
+		HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+		server.createContext("/auth/v1/user", exchange -> {
+			byte[] body = "{}".getBytes(StandardCharsets.UTF_8);
+			exchange.sendResponseHeaders(200, body.length);
+			exchange.getResponseBody().write(body);
+			exchange.close();
+		});
+		server.start();
+		try {
+			String base = "http://127.0.0.1:" + server.getAddress().getPort();
+			Jwt jwt = new SupabaseJwtDecoder(base, "", "service-role", restClient()).decode(token);
+			assertEquals("owner-1", jwt.getSubject());
+			assertEquals("owner@example.com", jwt.getClaimAsString("email"));
+			assertEquals("authenticated", jwt.getClaimAsString("role"));
+		} finally {
+			server.stop(0);
+		}
+	}
+
+	@Test
 	void rejectsHs256WhenSecretAndGoTrueAreMissing() throws Exception {
-		String token = hs256(SECRET, Instant.now().plusSeconds(60));
+		String token = hs256(SECRET, Instant.now().plusSeconds(60), false);
 		assertThrows(JwtException.class,
 				() -> new SupabaseJwtDecoder("https://example.supabase.co", "", "").decode(token));
 	}
@@ -70,15 +94,21 @@ class SupabaseJwtDecoderTest {
 		return RestClient.builder().requestFactory(factory).build();
 	}
 
-	private static String hs256(String secret, Instant exp) throws Exception {
-		SignedJWT jwt = new SignedJWT(
-				new JWSHeader(JWSAlgorithm.HS256),
-				new JWTClaimsSet.Builder()
-						.issuer(ISSUER)
-						.subject("owner-1")
-						.jwtID(UUID.randomUUID().toString())
-						.expirationTime(Date.from(exp))
-						.build());
+	private static String hs256(String secret, Instant exp, boolean nestedClaims) throws Exception {
+		JWTClaimsSet.Builder claims = new JWTClaimsSet.Builder()
+				.issuer(ISSUER)
+				.subject("owner-1")
+				.audience("authenticated")
+				.jwtID(UUID.randomUUID().toString())
+				.expirationTime(Date.from(exp))
+				.claim("email", "owner@example.com")
+				.claim("role", "authenticated");
+		if (nestedClaims) {
+			claims.claim("app_metadata", Map.of("provider", "email", "providers", List.of("email")))
+					.claim("user_metadata", Map.of("email_verified", true))
+					.claim("amr", List.of(Map.of("method", "password", "timestamp", 1_700_000_000L)));
+		}
+		SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims.build());
 		jwt.sign(new MACSigner(secret.getBytes(StandardCharsets.UTF_8)));
 		return jwt.serialize();
 	}
