@@ -14,7 +14,9 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.SecurityFilterChain;
@@ -36,6 +38,14 @@ public class SecurityConfig {
 	@Bean
 	EmployeeAuthenticationFilter employeeAuthenticationFilter(EmployeeSessionService sessions) {
 		return new EmployeeAuthenticationFilter(sessions);
+	}
+
+	@Bean
+	JwtAuthenticationConverter jwtAuthenticationConverter() {
+		JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+		converter.setPrincipalClaimName("sub");
+		converter.setJwtGrantedAuthoritiesConverter(jwt -> List.of(new SimpleGrantedAuthority("ROLE_OWNER")));
+		return converter;
 	}
 
 	@Bean
@@ -63,7 +73,10 @@ public class SecurityConfig {
 
 	@Bean
 	@Order(2)
-	SecurityFilterChain ownerApi(HttpSecurity http, JwtDecoder jwtDecoder) throws Exception {
+	SecurityFilterChain ownerApi(
+			HttpSecurity http,
+			JwtDecoder jwtDecoder,
+			JwtAuthenticationConverter jwtAuthenticationConverter) throws Exception {
 		http.securityMatcher("/v1/**")
 				.csrf(AbstractHttpConfigurer::disable)
 				.cors(Customizer.withDefaults())
@@ -73,7 +86,9 @@ public class SecurityConfig {
 						.authenticationEntryPoint(invalidSession())
 						.accessDeniedHandler(accessDenied()))
 				.oauth2ResourceServer(oauth -> oauth
-						.jwt(jwt -> jwt.decoder(jwtDecoder))
+						.jwt(jwt -> jwt
+								.decoder(jwtDecoder)
+								.jwtAuthenticationConverter(jwtAuthenticationConverter))
 						.authenticationEntryPoint(invalidSession()));
 		return http.build();
 	}
@@ -103,7 +118,7 @@ public class SecurityConfig {
 
 	private static AuthenticationEntryPoint invalidSession() {
 		return (request, response, authException) -> {
-			log.warn("Auth failed {} {}: {}", request.getMethod(), request.getRequestURI(), authException.toString());
+			log.info("Auth failed {} {}: {}", request.getMethod(), request.getRequestURI(), authException.toString());
 			response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
 			response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 			response.getWriter().write("{\"code\":\"UNAUTHORIZED\",\"message\":\"Sesión inválida.\"}");

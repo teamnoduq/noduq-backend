@@ -206,4 +206,30 @@ class SupabaseJwtDecoderTest {
 		jwt.sign(new ECDSASigner(key));
 		return jwt.serialize();
 	}
+
+	@Test
+	void liveSupabaseJwksShapeParsesAndRejectsForeignSignature() throws Exception {
+		String liveJwks = "{\"keys\":[{\"alg\":\"ES256\",\"crv\":\"P-256\",\"ext\":true,\"key_ops\":[\"verify\"],\"kid\":\"e6e4726d-1af6-4526-8a7a-ebf29797114b\",\"kty\":\"EC\",\"use\":\"sig\",\"x\":\"EEfQtvTh-p5YQ0dQuo4ooLRQJqA4Lp0BYRabTN_-HZg\",\"y\":\"q7w7ikA302ZrLBex4X3dUMTLNp6ZS_A9LR9OlbKV8pU\"}]}";
+		ECKey other = new ECKeyGenerator(Curve.P_256).keyID("e6e4726d-1af6-4526-8a7a-ebf29797114b").generate();
+		String token = es256(other, Instant.now().plusSeconds(60), true);
+		HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+		server.createContext("/auth/v1/.well-known/jwks.json", exchange -> {
+			byte[] body = liveJwks.getBytes(StandardCharsets.UTF_8);
+			exchange.getResponseHeaders().add("Content-Type", "application/json");
+			exchange.sendResponseHeaders(200, body.length);
+			exchange.getResponseBody().write(body);
+			exchange.close();
+		});
+		server.start();
+		try {
+			String base = "http://127.0.0.1:" + server.getAddress().getPort();
+			JwtException ex = assertThrows(JwtException.class,
+					() -> new SupabaseJwtDecoder(base, "", "", restClient()).decode(token));
+			org.junit.jupiter.api.Assertions.assertFalse(
+					ex.getMessage().contains("could not be parsed"),
+					ex.getMessage());
+		} finally {
+			server.stop(0);
+		}
+	}
 }

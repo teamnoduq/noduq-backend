@@ -44,7 +44,7 @@ public class IdentityExceptionHandler {
 
 	@ExceptionHandler(JwtException.class)
 	ResponseEntity<ApiError> jwt(JwtException ex) {
-		log.warn("JwtException in MVC: {}", ex.getMessage());
+		log.info("JwtException in MVC: {}", ex.getMessage());
 		return ResponseEntity.status(401).body(new ApiError("UNAUTHORIZED", "Sesión inválida."));
 	}
 

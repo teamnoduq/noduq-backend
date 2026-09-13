@@ -46,7 +46,7 @@ public class IdentityException extends RuntimeException {
 	public static IdentityException notProvisioned() {
 		return new IdentityException(
 				"NOT_PROVISIONED",
-				404,
+				422,
 				"Esta cuenta todavía no tiene organización. Hay que crear el comercio.");
 	}
 }

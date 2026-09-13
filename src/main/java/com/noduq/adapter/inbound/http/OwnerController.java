@@ -1,14 +1,12 @@
 package com.noduq.adapter.inbound.http;
 
 import com.noduq.application.identity.OwnerAccountService;
-import com.noduq.domain.identity.IdentityException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -32,14 +30,15 @@ public class OwnerController {
 	}
 
 	@GetMapping("/me")
-	ResponseEntity<?> me(@AuthenticationPrincipal Jwt jwt) {
-		UUID id = userId(jwt);
+	ResponseEntity<?> me(Authentication authentication) {
+		log.info("GET /v1/me auth={}", authentication == null ? "null" : authentication.getClass().getSimpleName());
+		UUID id = OwnerAuth.userId(authentication);
 		log.info("GET /v1/me sub={}", id);
 		return owners.findWorkspace(id)
 				.<ResponseEntity<?>>map(workspace -> ResponseEntity.ok(IdentityResponses.WorkspaceResponse.from(workspace)))
 				.orElseGet(() -> {
 					log.info("GET /v1/me not provisioned sub={}", id);
-					return ResponseEntity.status(404).body(new ApiError(
+					return ResponseEntity.status(422).body(new ApiError(
 							"NOT_PROVISIONED",
 							"Esta cuenta todavía no tiene organización. Hay que crear el comercio."));
 				});
@@ -47,48 +46,39 @@ public class OwnerController {
 
 	@PostMapping("/me/bootstrap")
 	IdentityResponses.WorkspaceResponse bootstrap(
-			@AuthenticationPrincipal Jwt jwt,
+			Authentication authentication,
 			@Valid @RequestBody BootstrapRequest body) {
-		UUID id = userId(jwt);
+		UUID id = OwnerAuth.userId(authentication);
 		log.info("POST /v1/me/bootstrap sub={}", id);
-		String displayName = body.displayName() != null ? body.displayName() : jwt.getClaimAsString("email");
+		String displayName = body.displayName() != null
+				? body.displayName()
+				: OwnerAuth.jwt(authentication).getClaimAsString("email");
 		return IdentityResponses.WorkspaceResponse.from(owners.bootstrap(id, displayName, body.organizationName()));
 	}
 
 	@PatchMapping("/me")
-	IdentityResponses.ProfileResponse patchMe(
-			@AuthenticationPrincipal Jwt jwt,
-			@RequestBody PatchMeRequest body) {
-		return IdentityResponses.ProfileResponse.from(owners.renameOwner(userId(jwt), body.displayName()));
+	IdentityResponses.ProfileResponse patchMe(Authentication authentication, @RequestBody PatchMeRequest body) {
+		return IdentityResponses.ProfileResponse.from(owners.renameOwner(OwnerAuth.userId(authentication), body.displayName()));
 	}
 
 	@DeleteMapping("/me")
-	void deleteMe(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody DeleteAccountRequest body) {
-		owners.deleteAccount(userId(jwt), body.confirmation());
+	void deleteMe(Authentication authentication, @Valid @RequestBody DeleteAccountRequest body) {
+		owners.deleteAccount(OwnerAuth.userId(authentication), body.confirmation());
 	}
 
 	@GetMapping("/organization")
-	IdentityResponses.OrganizationResponse organization(@AuthenticationPrincipal Jwt jwt) {
-		return IdentityResponses.OrganizationResponse.from(owners.requireWorkspace(userId(jwt)).organization());
+	IdentityResponses.OrganizationResponse organization(Authentication authentication) {
+		return IdentityResponses.OrganizationResponse.from(
+				owners.requireWorkspace(OwnerAuth.userId(authentication)).organization());
 	}
 
 	@PatchMapping("/organization")
 	IdentityResponses.WorkspaceResponse renameOrganization(
-			@AuthenticationPrincipal Jwt jwt,
+			Authentication authentication,
 			@RequestBody PatchOrganizationRequest body) {
 		return IdentityResponses.WorkspaceResponse.from(
-				owners.updateOrganization(userId(jwt), body.name(), body.merchantLast4(), body.smsPhone()));
-	}
-
-	private static UUID userId(Jwt jwt) {
-		if (jwt == null || jwt.getSubject() == null || jwt.getSubject().isBlank()) {
-			throw IdentityException.unauthorized("Sesión inválida.");
-		}
-		try {
-			return UUID.fromString(jwt.getSubject());
-		} catch (IllegalArgumentException ex) {
-			throw IdentityException.unauthorized("Sesión inválida.");
-		}
+				owners.updateOrganization(
+						OwnerAuth.userId(authentication), body.name(), body.merchantLast4(), body.smsPhone()));
 	}
 
 	public record BootstrapRequest(String displayName, @NotBlank String organizationName) {
