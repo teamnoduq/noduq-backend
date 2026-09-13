@@ -6,6 +6,8 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -18,16 +20,25 @@ import java.util.List;
 
 public class EmployeeAuthenticationFilter extends OncePerRequestFilter {
 
+	private static final Logger log = LoggerFactory.getLogger(EmployeeAuthenticationFilter.class);
+
 	private final EmployeeSessionService sessions;
 
 	public EmployeeAuthenticationFilter(EmployeeSessionService sessions) {
 		this.sessions = sessions;
 	}
 
+	/**
+	 * Only employee endpoints carry employee tokens. Owner endpoints send a Supabase
+	 * JWT on the same header, and parsing that as an employee token rejects the owner.
+	 */
 	@Override
 	protected boolean shouldNotFilter(HttpServletRequest request) {
-		return HttpMethod.POST.matches(request.getMethod())
-				&& request.getRequestURI().endsWith("/v1/employee/sessions");
+		String path = request.getRequestURI();
+		if (path == null || !path.startsWith("/v1/employee")) {
+			return true;
+		}
+		return HttpMethod.POST.matches(request.getMethod()) && path.endsWith("/v1/employee/sessions");
 	}
 
 	@Override
@@ -53,6 +64,8 @@ public class EmployeeAuthenticationFilter extends OncePerRequestFilter {
 			SecurityContextHolder.getContext().setAuthentication(authentication);
 			filterChain.doFilter(request, response);
 		} catch (IdentityException ex) {
+			log.info("Employee auth failed {} {}: code={} status={}",
+					request.getMethod(), request.getRequestURI(), ex.code(), ex.httpStatus());
 			SecurityContextHolder.clearContext();
 			response.setStatus(ex.httpStatus());
 			response.setContentType("application/json");

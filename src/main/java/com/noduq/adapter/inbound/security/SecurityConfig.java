@@ -36,11 +36,6 @@ public class SecurityConfig {
 	private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
 
 	@Bean
-	EmployeeAuthenticationFilter employeeAuthenticationFilter(EmployeeSessionService sessions) {
-		return new EmployeeAuthenticationFilter(sessions);
-	}
-
-	@Bean
 	JwtAuthenticationConverter jwtAuthenticationConverter() {
 		JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
 		converter.setPrincipalClaimName("sub");
@@ -57,9 +52,14 @@ public class SecurityConfig {
 		return new SupabaseJwtDecoder(supabaseUrl, jwtSecret, anonKey, serviceRoleKey);
 	}
 
+	/**
+	 * The filter is built here instead of exposed as a bean: Spring Boot auto-registers
+	 * every Filter bean for all URLs, and this one would then reject owner requests.
+	 */
 	@Bean
 	@Order(1)
-	SecurityFilterChain employeeApi(HttpSecurity http, EmployeeAuthenticationFilter employeeFilter) throws Exception {
+	SecurityFilterChain employeeApi(HttpSecurity http, EmployeeSessionService sessions) throws Exception {
+		EmployeeAuthenticationFilter employeeFilter = new EmployeeAuthenticationFilter(sessions);
 		http.securityMatcher("/v1/employee/**")
 				.csrf(AbstractHttpConfigurer::disable)
 				.cors(Customizer.withDefaults())
