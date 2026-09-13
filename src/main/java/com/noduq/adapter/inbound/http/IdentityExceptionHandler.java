@@ -4,6 +4,7 @@ import com.noduq.domain.identity.IdentityException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.jwt.JwtException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -33,5 +34,10 @@ public class IdentityExceptionHandler {
 	@ExceptionHandler(JwtException.class)
 	ResponseEntity<ApiError> jwt(JwtException ex) {
 		return ResponseEntity.status(401).body(new ApiError("UNAUTHORIZED", "Sesión inválida."));
+	}
+
+	@ExceptionHandler(CannotCreateTransactionException.class)
+	ResponseEntity<ApiError> database(CannotCreateTransactionException ex) {
+		return ResponseEntity.status(503).body(new ApiError("DATABASE", "No se pudo abrir la base de datos."));
 	}
 }
