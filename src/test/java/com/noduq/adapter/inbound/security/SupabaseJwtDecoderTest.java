@@ -87,7 +87,7 @@ class SupabaseJwtDecoderTest {
 	@Test
 	void decodesEs256AccessTokensFromJwks() throws Exception {
 		ECKey key = new ECKeyGenerator(Curve.P_256).keyID("kid-1").generate();
-		String token = es256(key, Instant.now().plusSeconds(60));
+		String token = es256(key, Instant.now().plusSeconds(60), false);
 		HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
 		String jwks = "{\"keys\":[" + key.toPublicJWK().toJSONString() + "]}";
 		server.createContext("/auth/v1/.well-known/jwks.json", exchange -> {
@@ -103,6 +103,55 @@ class SupabaseJwtDecoderTest {
 			Jwt jwt = new SupabaseJwtDecoder(base, "", "").decode(token);
 			assertEquals("owner-1", jwt.getSubject());
 			assertEquals("owner@example.com", jwt.getClaimAsString("email"));
+		} finally {
+			server.stop(0);
+		}
+	}
+
+	@Test
+	void decodesEs256AccessTokensWithNestedSupabaseClaims() throws Exception {
+		ECKey key = new ECKeyGenerator(Curve.P_256).keyID("kid-1").generate();
+		String token = es256(key, Instant.now().plusSeconds(60), true);
+		HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+		String jwks = "{\"keys\":[" + key.toPublicJWK().toJSONString() + "]}";
+		server.createContext("/auth/v1/.well-known/jwks.json", exchange -> {
+			byte[] body = jwks.getBytes(StandardCharsets.UTF_8);
+			exchange.getResponseHeaders().add("Content-Type", "application/json");
+			exchange.sendResponseHeaders(200, body.length);
+			exchange.getResponseBody().write(body);
+			exchange.close();
+		});
+		server.start();
+		try {
+			String base = "http://127.0.0.1:" + server.getAddress().getPort();
+			Jwt jwt = new SupabaseJwtDecoder(base, "", "").decode(token);
+			assertEquals("owner-1", jwt.getSubject());
+			assertEquals("owner@example.com", jwt.getClaimAsString("email"));
+			assertEquals("authenticated", jwt.getClaimAsString("role"));
+		} finally {
+			server.stop(0);
+		}
+	}
+
+	@Test
+	void goTruePrefersLegacyJwtApiKeyOverPublishable() throws Exception {
+		String token = hs256(SECRET, Instant.now().plusSeconds(60), true);
+		HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+		server.createContext("/auth/v1/user", exchange -> {
+			String apiKey = exchange.getRequestHeaders().getFirst("apikey");
+			byte[] body = "{}".getBytes(StandardCharsets.UTF_8);
+			int status = apiKey != null && apiKey.startsWith("eyJ") ? 200 : 401;
+			exchange.sendResponseHeaders(status, body.length);
+			exchange.getResponseBody().write(body);
+			exchange.close();
+		});
+		server.start();
+		try {
+			String base = "http://127.0.0.1:" + server.getAddress().getPort();
+			Jwt jwt = new SupabaseJwtDecoder(
+					base, "", "sb_publishable_test", "eyJhbGciOiJIUzI1NiJ9.test", restClient())
+					.decode(token);
+			assertEquals("owner-1", jwt.getSubject());
 		} finally {
 			server.stop(0);
 		}
@@ -141,18 +190,23 @@ class SupabaseJwtDecoderTest {
 		return jwt.serialize();
 	}
 
-	private static String es256(ECKey key, Instant exp) throws Exception {
+	private static String es256(ECKey key, Instant exp, boolean nestedClaims) throws Exception {
+		JWTClaimsSet.Builder claims = new JWTClaimsSet.Builder()
+				.issuer(ISSUER)
+				.subject("owner-1")
+				.audience("authenticated")
+				.expirationTime(Date.from(exp))
+				.issueTime(Date.from(Instant.now()))
+				.claim("email", "owner@example.com")
+				.claim("role", "authenticated");
+		if (nestedClaims) {
+			claims.claim("app_metadata", Map.of("provider", "email", "providers", List.of("email")))
+					.claim("user_metadata", Map.of("email_verified", true))
+					.claim("amr", List.of(Map.of("method", "password", "timestamp", 1_700_000_000L)));
+		}
 		SignedJWT jwt = new SignedJWT(
 				new JWSHeader.Builder(JWSAlgorithm.ES256).keyID(key.getKeyID()).build(),
-				new JWTClaimsSet.Builder()
-						.issuer(ISSUER)
-						.subject("owner-1")
-						.audience("authenticated")
-						.expirationTime(Date.from(exp))
-						.issueTime(Date.from(Instant.now()))
-						.claim("email", "owner@example.com")
-						.claim("role", "authenticated")
-						.build());
+				claims.build());
 		jwt.sign(new ECDSASigner(key));
 		return jwt.serialize();
 	}

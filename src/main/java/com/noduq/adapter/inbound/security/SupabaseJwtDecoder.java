@@ -1,23 +1,29 @@
 package com.noduq.adapter.inbound.security;
 
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.crypto.MACVerifier;
+import com.nimbusds.jose.jwk.source.JWKSource;
+import com.nimbusds.jose.jwk.source.RemoteJWKSet;
+import com.nimbusds.jose.proc.BadJOSEException;
+import com.nimbusds.jose.proc.JWSVerificationKeySelector;
+import com.nimbusds.jose.proc.SecurityContext;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import com.nimbusds.jwt.proc.BadJWTException;
+import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.security.oauth2.core.OAuth2TokenValidator;
-import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
-import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
-import org.springframework.security.oauth2.jwt.JwtValidators;
-import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
-import javax.crypto.spec.SecretKeySpec;
+import java.net.MalformedURLException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
 import java.time.Instant;
@@ -27,16 +33,16 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Supabase JWKS only publishes ES256, while many access tokens are still HS256.
- * Spring's JWKS decoder defaults to RS256, so ES256 must be enabled explicitly.
- * HS256 tokens are checked with GoTrue using the publishable key.
+ * User access tokens are ES256 after the JWT Signing Keys migration.
+ * Spring's Jwt type cannot store Supabase nested claims, so the signature is
+ * verified with Nimbus/JWKS (or GoTrue) and only scalar claims are kept.
  */
 final class SupabaseJwtDecoder implements JwtDecoder {
 
 	private static final Logger log = LoggerFactory.getLogger(SupabaseJwtDecoder.class);
 
-	private final JwtDecoder jwksDecoder;
-	private final JwtDecoder hmacDecoder;
+	private final DefaultJWTProcessor<SecurityContext> jwksProcessor;
+	private final byte[] hmacSecret;
 	private final String supabaseUrl;
 	private final String anonKey;
 	private final String serviceRoleKey;
@@ -60,22 +66,17 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 		this.anonKey = anonKey == null ? "" : anonKey;
 		this.serviceRoleKey = serviceRoleKey == null ? "" : serviceRoleKey;
 		this.restClient = restClient;
-		OAuth2TokenValidator<Jwt> validator = JwtValidators.createDefault();
-		NimbusJwtDecoder jwks = NimbusJwtDecoder.withJwkSetUri(this.supabaseUrl + "/auth/v1/.well-known/jwks.json")
-				.jwsAlgorithm(SignatureAlgorithm.ES256)
-				.build();
-		jwks.setJwtValidator(validator);
-		this.jwksDecoder = jwks;
-		this.hmacDecoder = hmacDecoder(jwtSecret, validator);
+		this.hmacSecret = hmacSecret(jwtSecret);
+		this.jwksProcessor = jwksProcessor(this.supabaseUrl);
 	}
 
 	@Override
 	public Jwt decode(String token) throws JwtException {
 		String alg = algorithm(token);
 		if (hmac(alg)) {
-			if (hmacDecoder != null) {
+			if (hmacSecret != null) {
 				try {
-					return hmacDecoder.decode(token);
+					return verifyHmac(token);
 				} catch (JwtException hmacError) {
 					log.warn("Supabase HS256 local verify failed, asking GoTrue: {}", hmacError.getMessage());
 					return decodeViaGoTrue(token);
@@ -84,7 +85,7 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 			return decodeViaGoTrue(token);
 		}
 		try {
-			return jwksDecoder.decode(token);
+			return verifyJwks(token);
 		} catch (JwtException jwksError) {
 			log.warn("Supabase JWKS verify failed alg={}: {}", alg, jwksError.getMessage());
 			try {
@@ -96,10 +97,35 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 		}
 	}
 
+	private Jwt verifyHmac(String token) {
+		try {
+			SignedJWT parsed = SignedJWT.parse(token);
+			if (!parsed.verify(new MACVerifier(hmacSecret))) {
+				throw new JwtException("Supabase HS256 signature is invalid");
+			}
+			return springJwt(parsed);
+		} catch (JwtException ex) {
+			throw ex;
+		} catch (JOSEException | ParseException | RuntimeException ex) {
+			throw new JwtException("Supabase HS256 access token was rejected", ex);
+		}
+	}
+
+	private Jwt verifyJwks(String token) {
+		try {
+			jwksProcessor.process(token, null);
+			return springJwt(SignedJWT.parse(token));
+		} catch (JwtException ex) {
+			throw ex;
+		} catch (BadJOSEException | JOSEException | ParseException | RuntimeException ex) {
+			throw new JwtException("Supabase JWKS access token was rejected", ex);
+		}
+	}
+
 	private Jwt decodeViaGoTrue(String token) {
-		String apikey = !anonKey.isBlank() ? anonKey : serviceRoleKey;
+		String apikey = goTrueApiKey();
 		if (apikey.isBlank()) {
-			throw new JwtException("Supabase HS256 access token cannot be verified without SUPABASE_ANON_KEY");
+			throw new JwtException("Supabase access token cannot be verified without SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY");
 		}
 		try {
 			restClient.get()
@@ -108,7 +134,7 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 					.header("apikey", apikey)
 					.retrieve()
 					.toBodilessEntity();
-			return parseVerifiedByGoTrue(token);
+			return springJwt(SignedJWT.parse(token));
 		} catch (JwtException ex) {
 			throw ex;
 		} catch (RestClientResponseException ex) {
@@ -120,13 +146,32 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 		}
 	}
 
-	private static Jwt parseVerifiedByGoTrue(String token) throws ParseException {
-		SignedJWT parsed = SignedJWT.parse(token);
+	private String goTrueApiKey() {
+		if (jwtShaped(serviceRoleKey)) {
+			return serviceRoleKey;
+		}
+		if (jwtShaped(anonKey)) {
+			return anonKey;
+		}
+		if (!serviceRoleKey.isBlank()) {
+			return serviceRoleKey;
+		}
+		return anonKey;
+	}
+
+	private static boolean jwtShaped(String key) {
+		return key != null && key.startsWith("eyJ");
+	}
+
+	private static Jwt springJwt(SignedJWT parsed) throws ParseException {
 		JWTClaimsSet set = parsed.getJWTClaimsSet();
 		Instant issuedAt = set.getIssueTime() != null ? set.getIssueTime().toInstant() : Instant.now();
 		Instant expiresAt = set.getExpirationTime() != null ? set.getExpirationTime().toInstant() : issuedAt.plusSeconds(3600);
 		if (expiresAt.isBefore(Instant.now().minusSeconds(30))) {
 			throw new JwtException("Supabase access token has expired");
+		}
+		if (set.getSubject() == null || set.getSubject().isBlank()) {
+			throw new JwtException("Supabase access token is missing sub");
 		}
 		Map<String, Object> headers = new HashMap<>();
 		if (parsed.getHeader().getAlgorithm() != null) {
@@ -152,21 +197,36 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 		if (role != null && !role.isBlank()) {
 			claims.put("role", role);
 		}
-		return new Jwt(token, issuedAt, expiresAt, headers, claims);
+		return new Jwt(parsed.getParsedString(), issuedAt, expiresAt, headers, claims);
 	}
 
 	private static boolean hmac(String alg) {
 		return alg != null && alg.startsWith("HS");
 	}
 
-	private static JwtDecoder hmacDecoder(String jwtSecret, OAuth2TokenValidator<Jwt> validator) {
+	private static byte[] hmacSecret(String jwtSecret) {
 		if (jwtSecret == null || jwtSecret.isBlank()) {
 			return null;
 		}
-		SecretKeySpec key = new SecretKeySpec(jwtSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-		NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build();
-		decoder.setJwtValidator(validator);
-		return decoder;
+		return jwtSecret.getBytes(StandardCharsets.UTF_8);
+	}
+
+	private static DefaultJWTProcessor<SecurityContext> jwksProcessor(String supabaseUrl) {
+		try {
+			JWKSource<SecurityContext> jwkSource =
+					new RemoteJWKSet<>(URI.create(supabaseUrl + "/auth/v1/.well-known/jwks.json").toURL());
+			DefaultJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();
+			processor.setJWSKeySelector(new JWSVerificationKeySelector<>(JWSAlgorithm.ES256, jwkSource));
+			processor.setJWTClaimsSetVerifier((claims, context) -> {
+				Date exp = claims.getExpirationTime();
+				if (exp != null && exp.toInstant().isBefore(Instant.now().minusSeconds(30))) {
+					throw new BadJWTException("Expired JWT");
+				}
+			});
+			return processor;
+		} catch (MalformedURLException ex) {
+			throw new IllegalArgumentException("Invalid SUPABASE_URL", ex);
+		}
 	}
 
 	private static RestClient restClient() {
