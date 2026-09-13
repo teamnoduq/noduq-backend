@@ -12,10 +12,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.nio.charset.StandardCharsets;
@@ -102,43 +104,53 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 		} catch (JwtException jwksError) {
 			log.info("Supabase JWKS verify failed alg={}: {}", alg, jwksError.getMessage());
 			this.jwkSet = null;
+			if (alg == null) {
+				throw jwksError;
+			}
 			try {
 				return decodeViaGoTrue(token);
 			} catch (JwtException goTrueError) {
 				log.info("Supabase GoTrue verify failed: {}", goTrueError.getMessage());
-				throw new JwtException(
-						"JWKS: " + jwksError.getMessage() + "; GoTrue: " + goTrueError.getMessage(),
-						goTrueError);
+				String message = "JWKS: " + jwksError.getMessage() + "; GoTrue: " + goTrueError.getMessage();
+				if (jwksError instanceof BadJwtException && goTrueError instanceof BadJwtException) {
+					throw new BadJwtException(message, goTrueError);
+				}
+				throw new JwtException(message, goTrueError);
 			}
 		}
 	}
 
 	private Jwt verifyHmac(String token) {
+		SignedJWT parsed = parse(token);
 		try {
-			SignedJWT parsed = SignedJWT.parse(token);
 			if (!parsed.verify(new MACVerifier(hmacSecret))) {
-				throw new JwtException("Supabase HS256 signature is invalid");
+				throw new BadJwtException("Supabase HS256 signature is invalid");
 			}
-			return springJwt(parsed);
-		} catch (JwtException ex) {
-			throw ex;
-		} catch (JOSEException | ParseException | RuntimeException ex) {
-			throw new JwtException("Supabase HS256 access token was rejected", ex);
+		} catch (JOSEException ex) {
+			throw new BadJwtException("Supabase HS256 signature could not be checked: " + ex.getMessage(), ex);
 		}
+		return springJwt(parsed);
 	}
 
 	private Jwt verifyJwks(String token) {
+		SignedJWT parsed = parse(token);
+		String kid = parsed.getHeader().getKeyID();
+		ECKey key = es256Key(kid);
 		try {
-			SignedJWT parsed = SignedJWT.parse(token);
-			ECKey key = es256Key(parsed.getHeader().getKeyID());
 			if (!parsed.verify(new ECDSAVerifier(key.toECPublicKey()))) {
-				throw new JwtException("Supabase ES256 signature is invalid kid=" + parsed.getHeader().getKeyID());
+				throw new BadJwtException("Supabase ES256 signature is invalid kid=" + kid);
 			}
-			return springJwt(parsed);
-		} catch (JwtException ex) {
-			throw ex;
-		} catch (JOSEException | ParseException | RuntimeException ex) {
-			throw new JwtException("Supabase JWKS access token was rejected: " + ex.getMessage(), ex);
+		} catch (JOSEException ex) {
+			throw new BadJwtException("Supabase ES256 signature could not be checked: " + ex.getMessage(), ex);
+		}
+		return springJwt(parsed);
+	}
+
+	private static SignedJWT parse(String token) {
+		try {
+			return SignedJWT.parse(token);
+		} catch (ParseException ex) {
+			throw new BadJwtException("Supabase access token is not a signed JWT: " + ex.getMessage(), ex);
 		}
 	}
 
@@ -151,7 +163,7 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 		if (jwk instanceof ECKey ecKey) {
 			return ecKey;
 		}
-		throw new JwtException("Supabase JWKS has no ES256 key for kid=" + kid);
+		throw new BadJwtException("Supabase JWKS has no ES256 key for kid=" + kid);
 	}
 
 	private JWKSet jwkSet() {
@@ -163,10 +175,15 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 			if (this.jwkSet != null) {
 				return this.jwkSet;
 			}
-			String body = restClient.get()
-					.uri(supabaseUrl + "/auth/v1/.well-known/jwks.json")
-					.retrieve()
-					.body(String.class);
+			String body;
+			try {
+				body = restClient.get()
+						.uri(supabaseUrl + "/auth/v1/.well-known/jwks.json")
+						.retrieve()
+						.body(String.class);
+			} catch (RestClientException ex) {
+				throw new JwtException("Supabase JWKS could not be fetched: " + ex.getMessage(), ex);
+			}
 			if (body == null || body.isBlank()) {
 				throw new JwtException("Supabase JWKS was empty");
 			}
@@ -200,16 +217,18 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 						.header("apikey", apikey)
 						.retrieve()
 						.toBodilessEntity();
-				return springJwt(SignedJWT.parse(token));
+				return springJwt(parse(token));
 			} catch (JwtException ex) {
 				last = ex;
 			} catch (RestClientResponseException ex) {
-				log.info("Supabase GoTrue rejected access token: status={} apikey={}",
-						ex.getStatusCode().value(), keyKind(apikey));
-				last = new JwtException("Supabase access token was rejected (" + ex.getStatusCode().value() + ")");
-			} catch (ParseException | RuntimeException ex) {
+				int status = ex.getStatusCode().value();
+				log.info("Supabase GoTrue rejected access token: status={} apikey={}", status, keyKind(apikey));
+				last = status >= 400 && status < 500
+						? new BadJwtException("Supabase access token was rejected (" + status + ")")
+						: new JwtException("Supabase could not verify the access token (" + status + ")");
+			} catch (RuntimeException ex) {
 				log.info("Supabase GoTrue verify failed apikey={}: {}", keyKind(apikey), ex.getMessage());
-				last = new JwtException("Supabase access token was rejected", ex);
+				last = new JwtException("Supabase could not verify the access token", ex);
 			}
 		}
 		throw last != null ? last : new JwtException("Supabase access token was rejected");
@@ -259,15 +278,20 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 				.replaceAll(",\\s*\"key_ops\"\\s*:\\s*\\[[^\\]]*\\]", "");
 	}
 
-	private static Jwt springJwt(SignedJWT parsed) throws ParseException {
-		JWTClaimsSet set = parsed.getJWTClaimsSet();
+	private static Jwt springJwt(SignedJWT parsed) {
+		JWTClaimsSet set;
+		try {
+			set = parsed.getJWTClaimsSet();
+		} catch (ParseException ex) {
+			throw new BadJwtException("Supabase access token claims could not be read: " + ex.getMessage(), ex);
+		}
 		Instant issuedAt = set.getIssueTime() != null ? set.getIssueTime().toInstant() : Instant.now();
 		Instant expiresAt = set.getExpirationTime() != null ? set.getExpirationTime().toInstant() : issuedAt.plusSeconds(3600);
 		if (expiresAt.isBefore(Instant.now().minusSeconds(30))) {
-			throw new JwtException("Supabase access token has expired");
+			throw new BadJwtException("Supabase access token has expired");
 		}
 		if (set.getSubject() == null || set.getSubject().isBlank()) {
-			throw new JwtException("Supabase access token is missing sub");
+			throw new BadJwtException("Supabase access token is missing sub");
 		}
 		Map<String, Object> headers = new HashMap<>();
 		if (parsed.getHeader().getAlgorithm() != null) {
@@ -285,18 +309,26 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 		if (set.getAudience() != null && !set.getAudience().isEmpty()) {
 			claims.put("aud", List.copyOf(set.getAudience()));
 		}
-		String email = set.getStringClaim("email");
+		String email = stringClaim(set, "email");
 		if (email != null && !email.isBlank()) {
 			claims.put("email", email);
 		}
-		String role = set.getStringClaim("role");
+		String role = stringClaim(set, "role");
 		if (role != null && !role.isBlank()) {
 			claims.put("role", role);
 		}
 		try {
 			return new Jwt(parsed.getParsedString(), issuedAt, expiresAt, headers, claims);
 		} catch (IllegalArgumentException ex) {
-			throw new JwtException("Spring Jwt rejected token claims: " + ex.getMessage(), ex);
+			throw new BadJwtException("Spring Jwt rejected token claims: " + ex.getMessage(), ex);
+		}
+	}
+
+	private static String stringClaim(JWTClaimsSet set, String name) {
+		try {
+			return set.getStringClaim(name);
+		} catch (ParseException ignored) {
+			return null;
 		}
 	}
 

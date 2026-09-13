@@ -12,6 +12,7 @@ import com.nimbusds.jwt.SignedJWT;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.web.client.RestClient;
@@ -123,6 +124,42 @@ class SupabaseJwtDecoderTest {
 					base, "", "sb_publishable_test", "eyJhbGciOiJIUzI1NiJ9.test", restClient())
 					.decode(token);
 			assertEquals("owner-1", jwt.getSubject());
+		} finally {
+			server.stop(0);
+		}
+	}
+
+	/** Spring only turns BadJwtException into a 401; a plain JwtException becomes a 500. */
+	@Test
+	void rejectsGarbageTokensAsBadJwtSoTheApiAnswers401() {
+		assertThrows(BadJwtException.class,
+				() -> new SupabaseJwtDecoder("https://example.supabase.co", "", "").decode("not-a-real-token"));
+	}
+
+	@Test
+	void rejectsExpiredEs256TokensAsBadJwt() throws Exception {
+		ECKey key = new ECKeyGenerator(Curve.P_256).keyID("kid-1").generate();
+		String token = es256(key, Instant.now().minusSeconds(600), false);
+		HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+		String jwks = "{\"keys\":[" + key.toPublicJWK().toJSONString() + "]}";
+		server.createContext("/auth/v1/.well-known/jwks.json", exchange -> {
+			byte[] body = jwks.getBytes(StandardCharsets.UTF_8);
+			exchange.getResponseHeaders().add("Content-Type", "application/json");
+			exchange.sendResponseHeaders(200, body.length);
+			exchange.getResponseBody().write(body);
+			exchange.close();
+		});
+		server.createContext("/auth/v1/user", exchange -> {
+			byte[] body = "{}".getBytes(StandardCharsets.UTF_8);
+			exchange.sendResponseHeaders(401, body.length);
+			exchange.getResponseBody().write(body);
+			exchange.close();
+		});
+		server.start();
+		try {
+			String base = "http://127.0.0.1:" + server.getAddress().getPort();
+			assertThrows(BadJwtException.class,
+					() -> new SupabaseJwtDecoder(base, "", "eyJhbGciOiJIUzI1NiJ9.anon", restClient()).decode(token));
 		} finally {
 			server.stop(0);
 		}
