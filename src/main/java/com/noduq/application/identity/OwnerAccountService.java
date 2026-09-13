@@ -9,6 +9,7 @@ import com.noduq.domain.identity.port.OwnerWorkspaceRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -23,8 +24,13 @@ public class OwnerAccountService {
 	}
 
 	@Transactional(readOnly = true)
+	public Optional<OwnerWorkspace> findWorkspace(UUID profileId) {
+		return workspaces.findByProfileId(profileId);
+	}
+
+	@Transactional(readOnly = true)
 	public OwnerWorkspace requireWorkspace(UUID profileId) {
-		return workspaces.findByProfileId(profileId).orElseThrow(IdentityException::notProvisioned);
+		return findWorkspace(profileId).orElseThrow(IdentityException::notProvisioned);
 	}
 
 	@Transactional

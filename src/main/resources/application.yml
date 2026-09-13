@@ -22,3 +22,7 @@ noduq:
     session-days: 30
     max-login-attempts: 8
     lockout-minutes: 15
+
+logging:
+  level:
+    com.noduq: INFO

@@ -1,8 +1,12 @@
 package com.noduq.adapter.inbound.http;
 
 import com.noduq.application.identity.OwnerAccountService;
+import com.noduq.domain.identity.IdentityException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -19,6 +23,8 @@ import java.util.UUID;
 @RequestMapping("/v1")
 public class OwnerController {
 
+	private static final Logger log = LoggerFactory.getLogger(OwnerController.class);
+
 	private final OwnerAccountService owners;
 
 	public OwnerController(OwnerAccountService owners) {
@@ -26,17 +32,27 @@ public class OwnerController {
 	}
 
 	@GetMapping("/me")
-	IdentityResponses.WorkspaceResponse me(@AuthenticationPrincipal Jwt jwt) {
-		return IdentityResponses.WorkspaceResponse.from(owners.requireWorkspace(userId(jwt)));
+	ResponseEntity<?> me(@AuthenticationPrincipal Jwt jwt) {
+		UUID id = userId(jwt);
+		log.info("GET /v1/me sub={}", id);
+		return owners.findWorkspace(id)
+				.<ResponseEntity<?>>map(workspace -> ResponseEntity.ok(IdentityResponses.WorkspaceResponse.from(workspace)))
+				.orElseGet(() -> {
+					log.info("GET /v1/me not provisioned sub={}", id);
+					return ResponseEntity.status(404).body(new ApiError(
+							"NOT_PROVISIONED",
+							"Esta cuenta todavía no tiene organización. Hay que crear el comercio."));
+				});
 	}
 
 	@PostMapping("/me/bootstrap")
 	IdentityResponses.WorkspaceResponse bootstrap(
 			@AuthenticationPrincipal Jwt jwt,
 			@Valid @RequestBody BootstrapRequest body) {
+		UUID id = userId(jwt);
+		log.info("POST /v1/me/bootstrap sub={}", id);
 		String displayName = body.displayName() != null ? body.displayName() : jwt.getClaimAsString("email");
-		return IdentityResponses.WorkspaceResponse.from(
-				owners.bootstrap(userId(jwt), displayName, body.organizationName()));
+		return IdentityResponses.WorkspaceResponse.from(owners.bootstrap(id, displayName, body.organizationName()));
 	}
 
 	@PatchMapping("/me")
@@ -65,7 +81,14 @@ public class OwnerController {
 	}
 
 	private static UUID userId(Jwt jwt) {
-		return UUID.fromString(jwt.getSubject());
+		if (jwt == null || jwt.getSubject() == null || jwt.getSubject().isBlank()) {
+			throw IdentityException.unauthorized("Sesión inválida.");
+		}
+		try {
+			return UUID.fromString(jwt.getSubject());
+		} catch (IllegalArgumentException ex) {
+			throw IdentityException.unauthorized("Sesión inválida.");
+		}
 	}
 
 	public record BootstrapRequest(String displayName, @NotBlank String organizationName) {

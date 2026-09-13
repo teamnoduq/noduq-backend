@@ -1,6 +1,8 @@
 package com.noduq.adapter.inbound.security;
 
 import com.noduq.application.identity.EmployeeSessionService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,6 +16,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -27,6 +30,8 @@ import java.util.List;
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+
+	private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
 
 	@Bean
 	EmployeeAuthenticationFilter employeeAuthenticationFilter(EmployeeSessionService sessions) {
@@ -64,6 +69,9 @@ public class SecurityConfig {
 				.cors(Customizer.withDefaults())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+				.exceptionHandling(ex -> ex
+						.authenticationEntryPoint(invalidSession())
+						.accessDeniedHandler(accessDenied()))
 				.oauth2ResourceServer(oauth -> oauth
 						.jwt(jwt -> jwt.decoder(jwtDecoder))
 						.authenticationEntryPoint(invalidSession()));
@@ -95,9 +103,19 @@ public class SecurityConfig {
 
 	private static AuthenticationEntryPoint invalidSession() {
 		return (request, response, authException) -> {
+			log.warn("Auth failed {} {}: {}", request.getMethod(), request.getRequestURI(), authException.toString());
 			response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
 			response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 			response.getWriter().write("{\"code\":\"UNAUTHORIZED\",\"message\":\"Sesión inválida.\"}");
+		};
+	}
+
+	private static AccessDeniedHandler accessDenied() {
+		return (request, response, denied) -> {
+			log.warn("Forbidden {} {}: {}", request.getMethod(), request.getRequestURI(), denied.getMessage());
+			response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+			response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+			response.getWriter().write("{\"code\":\"FORBIDDEN\",\"message\":\"No tienes permiso.\"}");
 		};
 	}
 }
