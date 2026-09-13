@@ -29,7 +29,7 @@ import java.util.Map;
 /**
  * Supabase JWKS only publishes ES256, while many access tokens are still HS256.
  * Spring's JWKS decoder defaults to RS256, so ES256 must be enabled explicitly.
- * Verify HMAC locally when {@code SUPABASE_JWT_SECRET} is set; otherwise ask GoTrue.
+ * HS256 tokens are checked with GoTrue using the publishable key.
  */
 final class SupabaseJwtDecoder implements JwtDecoder {
 
@@ -38,15 +38,26 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 	private final JwtDecoder jwksDecoder;
 	private final JwtDecoder hmacDecoder;
 	private final String supabaseUrl;
+	private final String anonKey;
 	private final String serviceRoleKey;
 	private final RestClient restClient;
 
 	SupabaseJwtDecoder(String supabaseUrl, String jwtSecret, String serviceRoleKey) {
-		this(supabaseUrl, jwtSecret, serviceRoleKey, restClient());
+		this(supabaseUrl, jwtSecret, "", serviceRoleKey, restClient());
+	}
+
+	SupabaseJwtDecoder(String supabaseUrl, String jwtSecret, String anonKey, String serviceRoleKey) {
+		this(supabaseUrl, jwtSecret, anonKey, serviceRoleKey, restClient());
 	}
 
 	SupabaseJwtDecoder(String supabaseUrl, String jwtSecret, String serviceRoleKey, RestClient restClient) {
+		this(supabaseUrl, jwtSecret, "", serviceRoleKey, restClient);
+	}
+
+	SupabaseJwtDecoder(
+			String supabaseUrl, String jwtSecret, String anonKey, String serviceRoleKey, RestClient restClient) {
 		this.supabaseUrl = supabaseUrl.replaceAll("/$", "");
+		this.anonKey = anonKey == null ? "" : anonKey;
 		this.serviceRoleKey = serviceRoleKey == null ? "" : serviceRoleKey;
 		this.restClient = restClient;
 		OAuth2TokenValidator<Jwt> validator = JwtValidators.createDefault();
@@ -76,35 +87,35 @@ final class SupabaseJwtDecoder implements JwtDecoder {
 			return jwksDecoder.decode(token);
 		} catch (JwtException jwksError) {
 			log.warn("Supabase JWKS verify failed alg={}: {}", alg, jwksError.getMessage());
-			if (!serviceRoleKey.isBlank()) {
-				try {
-					return decodeViaGoTrue(token);
-				} catch (JwtException goTrueError) {
-					log.warn("Supabase GoTrue verify failed: {}", goTrueError.getMessage());
-					throw jwksError;
-				}
+			try {
+				return decodeViaGoTrue(token);
+			} catch (JwtException goTrueError) {
+				log.warn("Supabase GoTrue verify failed: {}", goTrueError.getMessage());
+				throw jwksError;
 			}
-			throw jwksError;
 		}
 	}
 
 	private Jwt decodeViaGoTrue(String token) {
-		if (serviceRoleKey.isBlank()) {
-			throw new JwtException("Supabase HS256 access token cannot be verified without SUPABASE_JWT_SECRET");
+		String apikey = !anonKey.isBlank() ? anonKey : serviceRoleKey;
+		if (apikey.isBlank()) {
+			throw new JwtException("Supabase HS256 access token cannot be verified without SUPABASE_ANON_KEY");
 		}
 		try {
 			restClient.get()
 					.uri(supabaseUrl + "/auth/v1/user")
 					.header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
-					.header("apikey", serviceRoleKey)
+					.header("apikey", apikey)
 					.retrieve()
 					.toBodilessEntity();
 			return parseVerifiedByGoTrue(token);
 		} catch (JwtException ex) {
 			throw ex;
 		} catch (RestClientResponseException ex) {
+			log.warn("Supabase GoTrue rejected access token: status={}", ex.getStatusCode().value());
 			throw new JwtException("Supabase access token was rejected (" + ex.getStatusCode().value() + ")");
 		} catch (ParseException | RuntimeException ex) {
+			log.warn("Supabase GoTrue verify failed: {}", ex.getMessage());
 			throw new JwtException("Supabase access token was rejected", ex);
 		}
 	}

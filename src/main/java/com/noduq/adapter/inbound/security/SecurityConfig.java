@@ -37,8 +37,9 @@ public class SecurityConfig {
 	JwtDecoder jwtDecoder(
 			@Value("${noduq.supabase.url}") String supabaseUrl,
 			@Value("${noduq.supabase.jwt-secret:}") String jwtSecret,
+			@Value("${noduq.supabase.anon-key:}") String anonKey,
 			@Value("${noduq.supabase.service-role-key:}") String serviceRoleKey) {
-		return new SupabaseJwtDecoder(supabaseUrl, jwtSecret, serviceRoleKey);
+		return new SupabaseJwtDecoder(supabaseUrl, jwtSecret, anonKey, serviceRoleKey);
 	}
 
 	@Bean

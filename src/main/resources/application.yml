@@ -15,6 +15,7 @@ noduq:
   supabase:
     url: ${SUPABASE_URL:https://gthbmxvefblwajeposrx.supabase.co}
     jwt-secret: ${SUPABASE_JWT_SECRET:}
+    anon-key: ${SUPABASE_ANON_KEY:}
     service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
   employee:
     jwt-secret: ${EMPLOYEE_JWT_SECRET:local-dev-employee-jwt-secret-key}
