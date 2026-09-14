@@ -31,16 +31,15 @@ public class PaymentNotifier {
 			log.info("Push disabled, notice {} only stored", notice.id());
 			return;
 		}
-		List<String> tokens = devices.listByOrganization(notice.organizationId()).stream()
-				.map(Device::pushToken)
-				.toList();
-		if (tokens.isEmpty()) {
-			log.info("No devices registered for org {}, notice {} only stored", notice.organizationId(), notice.id());
-			return;
-		}
-		// The payment already happened. If Firebase is having a bad day the notice is still
-		// stored and the app will pick it up on its next read, so nothing here may throw.
+		// The payment already happened. Listing tokens or Firebase must not fail the ingest.
 		try {
+			List<String> tokens = devices.listByOrganization(notice.organizationId()).stream()
+					.map(Device::pushToken)
+					.toList();
+			if (tokens.isEmpty()) {
+				log.info("No devices registered for org {}, notice {} only stored", notice.organizationId(), notice.id());
+				return;
+			}
 			Set<String> rejected = push.send(tokens, PaymentAnnouncement.of(notice));
 			if (!rejected.isEmpty()) {
 				log.info("Dropping {} dead push tokens for org {}", rejected.size(), notice.organizationId());

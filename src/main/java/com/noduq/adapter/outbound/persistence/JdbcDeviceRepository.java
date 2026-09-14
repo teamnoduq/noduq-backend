@@ -39,7 +39,8 @@ public class JdbcDeviceRepository implements DeviceRepository {
 						  sms_reader = excluded.sms_reader,
 						  last_seen_at = now()
 						returning
-						""" + COLUMNS,
+						"""
+						+ " " + COLUMNS,
 				this::device,
 				device.id(),
 				device.organizationId(),
@@ -53,11 +54,7 @@ public class JdbcDeviceRepository implements DeviceRepository {
 	@Override
 	public List<Device> listByOrganization(UUID organizationId) {
 		return jdbc.query(
-				"select " + COLUMNS + """
-						from devices
-						where organization_id = ?
-						order by last_seen_at desc
-						""",
+				"select " + COLUMNS + " from devices where organization_id = ? order by last_seen_at desc",
 				this::device,
 				organizationId);
 	}
