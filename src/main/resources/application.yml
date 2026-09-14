@@ -17,6 +17,14 @@ noduq:
     jwt-secret: ${SUPABASE_JWT_SECRET:}
     anon-key: ${SUPABASE_ANON_KEY:}
     service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
+  firebase:
+    credentials: ${FIREBASE_CREDENTIALS:}
+  gmail:
+    client-id: ${GMAIL_CLIENT_ID:}
+    client-secret: ${GMAIL_CLIENT_SECRET:}
+    redirect-uri: ${GMAIL_REDIRECT_URI:https://api.noduq.app/v1/gmail/callback}
+    app-redirect: ${GMAIL_APP_REDIRECT:com.noduq.app://gmail-callback}
+    poll-ms: ${GMAIL_POLL_MS:45000}
   employee:
     jwt-secret: ${EMPLOYEE_JWT_SECRET:local-dev-employee-jwt-secret-key}
     session-days: 30

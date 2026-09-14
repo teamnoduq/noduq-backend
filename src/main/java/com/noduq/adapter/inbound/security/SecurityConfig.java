@@ -52,6 +52,17 @@ public class SecurityConfig {
 		return new SupabaseJwtDecoder(supabaseUrl, jwtSecret, anonKey, serviceRoleKey);
 	}
 
+	@Bean
+	@Order(0)
+	SecurityFilterChain gmailCallback(HttpSecurity http) throws Exception {
+		http.securityMatcher("/v1/gmail/callback")
+				.csrf(AbstractHttpConfigurer::disable)
+				.cors(Customizer.withDefaults())
+				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+				.authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
+		return http.build();
+	}
+
 	/**
 	 * The filter is built here instead of exposed as a bean: Spring Boot auto-registers
 	 * every Filter bean for all URLs, and this one would then reject owner requests.
