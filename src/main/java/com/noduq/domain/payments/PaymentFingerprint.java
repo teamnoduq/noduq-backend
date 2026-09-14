@@ -3,6 +3,7 @@ package com.noduq.domain.payments;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Locale;
 
@@ -16,10 +17,23 @@ public final class PaymentFingerprint {
 	}
 
 	/**
-	 * Same wording on SMS and email must land on the same row, so the sender is not part of
-	 * the hash: 85540 and the bank mailbox are two doors into one payment.
+	 * Same payer, amount and bank minute must land on one row, whether they arrived as SMS
+	 * or mail. A second QR of the same pesos a few minutes later is a different payment.
 	 */
 	public static String of(String sender, String body) {
+		return of(body, Instant.now());
+	}
+
+	public static String of(String body, Instant receivedAt) {
+		SmsPaymentParser.Reading reading = SmsPaymentParser.read(body, receivedAt == null ? Instant.now() : receivedAt);
+		if (reading.occurredAt() != null && (reading.payerName() != null || reading.amount() != null)) {
+			String payer = reading.payerName() == null
+					? ""
+					: SmsPaymentParser.flatten(reading.payerName()).toLowerCase(Locale.ROOT);
+			String amount = reading.amount() == null ? "" : reading.amount().toPlainString();
+			long minute = reading.occurredAt().getEpochSecond() / 60;
+			return sha256("v2|" + payer + "|" + amount + "|" + minute);
+		}
 		return ofBody(body);
 	}
 

@@ -269,7 +269,7 @@ class PaymentIngestServiceTest {
 		echoInsert();
 
 		PaymentNotice sms = service.ingestSms(ORGANIZATION, "8186", "85540", RECEIPT, null).notice();
-		assertEquals(sms.fingerprint(), com.noduq.domain.payments.PaymentFingerprint.ofBody(RECEIPT));
+		assertEquals(sms.fingerprint(), com.noduq.domain.payments.PaymentFingerprint.of(RECEIPT, sms.receivedAt()));
 	}
 
 	private PaymentNotice smsNotice() {

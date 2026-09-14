@@ -120,7 +120,7 @@ public class PaymentIngestService {
 				PaymentNotice.DEFAULT_CURRENCY,
 				reading.occurredAt(),
 				receivedAt,
-				PaymentFingerprint.of(sender, text),
+				PaymentFingerprint.of(text, receivedAt),
 				null,
 				reading.anything() ? null : SmsPaymentParser.maskDigits(text));
 
@@ -183,7 +183,7 @@ public class PaymentIngestService {
 		}
 
 		Instant receivedAt = receivedAt(sentAt);
-		String fingerprint = PaymentFingerprint.ofBody(text);
+		String fingerprint = PaymentFingerprint.of(text, receivedAt);
 		Optional<PaymentNotice> existing = notices.findByFingerprint(organizationId, fingerprint);
 		if (existing.isPresent()) {
 			Optional<PaymentNotice> confirmed = notices.markEmailConfirmed(
