@@ -3,6 +3,7 @@ package com.noduq.application.payments;
 import com.noduq.domain.payments.Device;
 import com.noduq.domain.payments.PaymentAnnouncement;
 import com.noduq.domain.payments.PaymentNotice;
+import com.noduq.domain.payments.PaymentSource;
 import com.noduq.domain.payments.port.DeviceRepository;
 import com.noduq.domain.payments.port.PushSender;
 import org.slf4j.Logger;
@@ -33,11 +34,16 @@ public class PaymentNotifier {
 		}
 		// The payment already happened. Listing tokens or Firebase must not fail the ingest.
 		try {
+			boolean fromSms = notice.source() == PaymentSource.SMS;
 			List<String> tokens = devices.listByOrganization(notice.organizationId()).stream()
+					.filter(device -> !fromSms || !device.smsReader())
 					.map(Device::pushToken)
 					.toList();
 			if (tokens.isEmpty()) {
-				log.info("No devices registered for org {}, notice {} only stored", notice.organizationId(), notice.id());
+				log.info(
+						"No other devices to push for org {}, notice {} stays on the SMS phone",
+						notice.organizationId(),
+						notice.id());
 				return;
 			}
 			Set<String> rejected = push.send(tokens, PaymentAnnouncement.of(notice));
