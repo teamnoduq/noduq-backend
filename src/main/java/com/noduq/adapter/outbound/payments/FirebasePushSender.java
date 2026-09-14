@@ -118,13 +118,17 @@ public class FirebasePushSender implements PushSender {
 			return null;
 		}
 		try {
-			FirebaseOptions options = FirebaseOptions.builder()
-					.setCredentials(GoogleCredentials.fromStream(new ByteArrayInputStream(serviceAccount(credentials))))
-					.build();
+			byte[] raw = serviceAccount(credentials);
+			String projectId = projectIdFrom(raw);
+			FirebaseOptions.Builder options = FirebaseOptions.builder()
+					.setCredentials(GoogleCredentials.fromStream(new ByteArrayInputStream(raw)));
+			if (projectId != null && !projectId.isBlank()) {
+				options.setProjectId(projectId);
+			}
 			FirebaseApp app = FirebaseApp.getApps().stream()
 					.filter(existing -> APP_NAME.equals(existing.getName()))
 					.findFirst()
-					.orElseGet(() -> FirebaseApp.initializeApp(options, APP_NAME));
+					.orElseGet(() -> FirebaseApp.initializeApp(options.build(), APP_NAME));
 			log.info("Firebase push ready for project {}", app.getOptions().getProjectId());
 			return FirebaseMessaging.getInstance(app);
 		} catch (IOException | RuntimeException ex) {
@@ -140,5 +144,22 @@ public class FirebasePushSender implements PushSender {
 			return value.getBytes(StandardCharsets.UTF_8);
 		}
 		return Base64.getDecoder().decode(value.replaceAll("\\s", ""));
+	}
+
+	private static String projectIdFrom(byte[] json) {
+		try {
+			com.fasterxml.jackson.databind.JsonNode root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+			com.fasterxml.jackson.databind.JsonNode id = root.get("project_id");
+			if (id == null || id.isNull() || id.asText().isBlank()) {
+				id = root.get("projectId");
+			}
+			if (id == null || id.isNull() || id.asText().isBlank()) {
+				return "noduq-col";
+			}
+			return id.asText();
+		} catch (IOException ex) {
+			log.warn("Firebase JSON had no project_id, using noduq-col: {}", ex.toString());
+			return "noduq-col";
+		}
 	}
 }

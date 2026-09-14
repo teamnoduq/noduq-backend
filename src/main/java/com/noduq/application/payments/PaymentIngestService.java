@@ -127,7 +127,11 @@ public class PaymentIngestService {
 		Optional<PaymentNotice> stored = notices.insertIfNew(draft);
 		if (stored.isEmpty()) {
 			log.info("SMS already seen org={}", organizationId);
-			return new Ingested(Outcome.DUPLICATE, null);
+			PaymentNotice existing = notices.findByFingerprint(organizationId, draft.fingerprint()).orElse(null);
+			if (existing != null) {
+				notifier.announce(existing);
+			}
+			return new Ingested(Outcome.DUPLICATE, existing);
 		}
 
 		PaymentNotice notice = stored.get();

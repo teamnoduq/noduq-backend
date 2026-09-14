@@ -114,13 +114,27 @@ class PaymentIngestServiceTest {
 	}
 
 	@Test
-	void staysQuietWhenTheSameMessageArrivesTwice() {
+	void stillAnnouncesWhenTheSameMessageIsRetried() {
+		PaymentNotice existing = new PaymentNotice(
+				UUID.randomUUID(),
+				ORGANIZATION,
+				PaymentSource.SMS,
+				"JUAN DAVID MARRUGO NARVAEZ",
+				new BigDecimal("6500.00"),
+				PaymentNotice.DEFAULT_CURRENCY,
+				null,
+				java.time.Instant.parse("2026-09-12T20:11:00Z"),
+				"fp",
+				null,
+				null);
 		when(notices.insertIfNew(any())).thenReturn(Optional.empty());
+		when(notices.findByFingerprint(any(), any())).thenReturn(Optional.of(existing));
 
 		PaymentIngestService.Ingested ingested = service.ingestSms(ORGANIZATION, "8186", "85540", RECEIPT, null);
 
 		assertEquals(PaymentIngestService.Outcome.DUPLICATE, ingested.outcome());
-		verifyNoInteractions(notifier);
+		assertEquals(existing, ingested.notice());
+		verify(notifier).announce(existing);
 	}
 
 	@Test
