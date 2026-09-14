@@ -12,5 +12,6 @@ public record Employee(
 		String codeHash,
 		String codeLookup,
 		boolean active,
+		int lookbackDays,
 		Instant createdAt) {
 }

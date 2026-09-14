@@ -1,5 +1,6 @@
 package com.noduq.adapter.inbound.http;
 
+import com.noduq.application.identity.OrganizationPlanService;
 import com.noduq.application.identity.OwnerAccountService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -24,9 +25,11 @@ public class OwnerController {
 	private static final Logger log = LoggerFactory.getLogger(OwnerController.class);
 
 	private final OwnerAccountService owners;
+	private final OrganizationPlanService plans;
 
-	public OwnerController(OwnerAccountService owners) {
+	public OwnerController(OwnerAccountService owners, OrganizationPlanService plans) {
 		this.owners = owners;
+		this.plans = plans;
 	}
 
 	@GetMapping("/me")
@@ -35,7 +38,7 @@ public class OwnerController {
 		UUID id = OwnerAuth.userId(authentication);
 		log.info("GET /v1/me sub={}", id);
 		return owners.findWorkspace(id)
-				.<ResponseEntity<?>>map(workspace -> ResponseEntity.ok(IdentityResponses.WorkspaceResponse.from(workspace)))
+				.<ResponseEntity<?>>map(workspace -> ResponseEntity.ok(withPlan(workspace)))
 				.orElseGet(() -> {
 					log.info("GET /v1/me not provisioned sub={}", id);
 					return ResponseEntity.status(422).body(new ApiError(
@@ -53,7 +56,7 @@ public class OwnerController {
 		String displayName = body.displayName() != null
 				? body.displayName()
 				: OwnerAuth.jwt(authentication).getClaimAsString("email");
-		return IdentityResponses.WorkspaceResponse.from(owners.bootstrap(id, displayName, body.organizationName()));
+		return withPlan(owners.bootstrap(id, displayName, body.organizationName()));
 	}
 
 	@PatchMapping("/me")
@@ -76,7 +79,7 @@ public class OwnerController {
 	IdentityResponses.WorkspaceResponse renameOrganization(
 			Authentication authentication,
 			@RequestBody PatchOrganizationRequest body) {
-		return IdentityResponses.WorkspaceResponse.from(
+		return withPlan(
 				owners.updateOrganization(
 						OwnerAuth.userId(authentication), body.name(), body.merchantLast4(), body.smsPhone()));
 	}
@@ -91,5 +94,13 @@ public class OwnerController {
 	}
 
 	public record DeleteAccountRequest(@NotBlank String confirmation) {
+	}
+
+	private IdentityResponses.WorkspaceResponse withPlan(com.noduq.domain.identity.OwnerWorkspace workspace) {
+		return IdentityResponses.WorkspaceResponse.from(
+				workspace,
+				plans.find(workspace.organization().id())
+						.map(IdentityResponses.PlanResponse::from)
+						.orElseGet(IdentityResponses.PlanResponse::none));
 	}
 }

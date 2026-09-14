@@ -1,6 +1,7 @@
 package com.noduq.application.payments;
 
 import com.noduq.adapter.outbound.payments.GmailMailbox;
+import com.noduq.application.identity.OrganizationPlanService;
 import com.noduq.application.identity.OwnerAccountService;
 import com.noduq.domain.identity.IdentityException;
 import com.noduq.domain.identity.OwnerWorkspace;
@@ -31,22 +32,30 @@ public class GmailLinkService {
 	private final GmailConnectionRepository connections;
 	private final GmailMailbox gmail;
 	private final PaymentIngestService ingest;
+	private final OrganizationPlanService plans;
 	private final String stateSecret;
 	private final String appRedirect;
+	private final String webRedirect;
 
 	public GmailLinkService(
 			OwnerAccountService owners,
 			GmailConnectionRepository connections,
 			GmailMailbox gmail,
 			PaymentIngestService ingest,
+			OrganizationPlanService plans,
 			@Value("${noduq.employee.jwt-secret}") String stateSecret,
-			@Value("${noduq.gmail.app-redirect:com.noduq.app://gmail-callback}") String appRedirect) {
+			@Value("${noduq.gmail.app-redirect:com.noduq.app://gmail-callback}") String appRedirect,
+			@Value("${noduq.gmail.web-redirect:https://noduq.app/cuenta}") String webRedirect) {
 		this.owners = owners;
 		this.connections = connections;
 		this.gmail = gmail;
 		this.ingest = ingest;
+		this.plans = plans;
 		this.stateSecret = stateSecret;
 		this.appRedirect = appRedirect;
+		this.webRedirect = webRedirect == null || webRedirect.isBlank()
+				? "https://noduq.app/cuenta"
+				: webRedirect.trim();
 	}
 
 	public boolean configured() {
@@ -64,6 +73,10 @@ public class GmailLinkService {
 	}
 
 	public String authorizationUrl(UUID profileId) {
+		return authorizationUrl(profileId, false);
+	}
+
+	public String authorizationUrl(UUID profileId, boolean web) {
 		if (!gmail.configured()) {
 			throw IdentityException.validation(
 					"GMAIL_NOT_CONFIGURED",
@@ -71,11 +84,12 @@ public class GmailLinkService {
 		}
 		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
 		workspace.requireOwner();
-		return gmail.authorizationUrl(sign(profileId));
+		return gmail.authorizationUrl(sign(profileId, web));
 	}
 
 	public String finish(String code, String state) {
-		UUID profileId = readState(state);
+		SignedState signed = readState(state);
+		UUID profileId = signed.profileId();
 		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
 		workspace.requireOwner();
 		GmailMailbox.Tokens tokens = gmail.exchange(code);
@@ -100,7 +114,8 @@ public class GmailLinkService {
 				null));
 		log.info("Gmail linked org={} address={}", workspace.organization().id(), profile.emailAddress());
 		poll(connections.findByOrganization(workspace.organization().id()).orElseThrow());
-		return appRedirect.contains("?") ? appRedirect + "&ok=1" : appRedirect + "?ok=1";
+		String target = signed.web() ? webRedirect : appRedirect;
+		return target.contains("?") ? target + "&gmail=ok" : target + "?gmail=ok";
 	}
 
 	public void disconnect(UUID profileId) {
@@ -133,6 +148,9 @@ public class GmailLinkService {
 				? Instant.now().minus(Duration.ofHours(36))
 				: connection.lastPolledAt().minus(Duration.ofMinutes(5));
 		OwnerWorkspace workspace = owners.requireWorkspace(connection.profileId());
+		if (!plans.allowsEmail(connection.organizationId())) {
+			return;
+		}
 		for (GmailMailbox.BankMail mail : gmail.recentReceipts(access, floor)) {
 			ingest.ingestEmail(
 					connection.organizationId(),
@@ -144,32 +162,37 @@ public class GmailLinkService {
 		connections.touched(connection.organizationId(), profile.historyId(), Instant.now());
 	}
 
-	private String sign(UUID profileId) {
+	private String sign(UUID profileId, boolean web) {
 		long expires = Instant.now().plus(STATE_TTL).getEpochSecond();
-		String payload = profileId + "." + expires;
+		String payload = profileId + "." + expires + "." + (web ? "web" : "app");
 		return payload + "." + hmac(payload);
 	}
 
-	private UUID readState(String state) {
+	private SignedState readState(String state) {
 		if (state == null || state.isBlank()) {
 			throw IdentityException.unauthorized("El enlace de Gmail expiró. Vuelve a conectarlo.");
 		}
 		String[] parts = state.split("\\.");
-		if (parts.length != 3) {
+		if (parts.length != 3 && parts.length != 4) {
 			throw IdentityException.unauthorized("El enlace de Gmail no es válido.");
 		}
-		String payload = parts[0] + "." + parts[1];
-		if (!hmac(payload).equals(parts[2])) {
+		boolean web = parts.length == 4 && "web".equals(parts[2]);
+		String payload = parts.length == 4 ? parts[0] + "." + parts[1] + "." + parts[2] : parts[0] + "." + parts[1];
+		String signature = parts[parts.length - 1];
+		if (!hmac(payload).equals(signature)) {
 			throw IdentityException.unauthorized("El enlace de Gmail no es válido.");
 		}
 		try {
 			if (Long.parseLong(parts[1]) < Instant.now().getEpochSecond()) {
 				throw IdentityException.unauthorized("El enlace de Gmail expiró. Vuelve a conectarlo.");
 			}
-			return UUID.fromString(parts[0]);
+			return new SignedState(UUID.fromString(parts[0]), web);
 		} catch (IllegalArgumentException ex) {
 			throw IdentityException.unauthorized("El enlace de Gmail no es válido.");
 		}
+	}
+
+	private record SignedState(UUID profileId, boolean web) {
 	}
 
 	private String hmac(String payload) {

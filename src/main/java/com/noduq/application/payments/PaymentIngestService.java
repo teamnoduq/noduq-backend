@@ -1,5 +1,6 @@
 package com.noduq.application.payments;
 
+import com.noduq.application.identity.OrganizationPlanService;
 import com.noduq.application.identity.OwnerAccountService;
 import com.noduq.domain.identity.IdentityException;
 import com.noduq.domain.identity.OwnerWorkspace;
@@ -44,23 +45,27 @@ public class PaymentIngestService {
 		CONFIRMED,
 		IGNORED_SENDER,
 		IGNORED_OTHER_ACCOUNT,
-		IGNORED_NOT_QR
+		IGNORED_NOT_QR,
+		IGNORED_NO_PLAN
 	}
 
 	public record Ingested(Outcome outcome, PaymentNotice notice) {
 	}
 
 	private final OwnerAccountService owners;
+	private final OrganizationPlanService plans;
 	private final PaymentNoticeRepository notices;
 	private final PaymentNotifier notifier;
 	private final BankSenders senders;
 
 	public PaymentIngestService(
 			OwnerAccountService owners,
+			OrganizationPlanService plans,
 			PaymentNoticeRepository notices,
 			PaymentNotifier notifier,
 			BankSenders senders) {
 		this.owners = owners;
+		this.plans = plans;
 		this.notices = notices;
 		this.notifier = notifier;
 		this.senders = senders;
@@ -69,6 +74,9 @@ public class PaymentIngestService {
 	public Ingested ingestOwnerSms(UUID profileId, String sender, String body, Instant sentAt) {
 		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
 		workspace.requireOwner();
+		if (!plans.allowsSms(workspace.organization().id())) {
+			return new Ingested(Outcome.IGNORED_NO_PLAN, null);
+		}
 		return ingestSms(
 				workspace.organization().id(),
 				workspace.organization().merchantLast4(),

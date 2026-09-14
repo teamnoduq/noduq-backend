@@ -67,6 +67,40 @@ public class JdbcPaymentNoticeRepository implements PaymentNoticeRepository {
 	}
 
 	@Override
+	public List<PaymentNotice> search(
+			UUID organizationId,
+			int limit,
+			Instant since,
+			Instant until,
+			String query,
+			String source) {
+		String trimmedQuery = query == null || query.isBlank() ? null : "%" + query.trim().toLowerCase() + "%";
+		String sourceFilter = source == null || source.isBlank() ? null : source.trim().toLowerCase();
+		return jdbc.query(
+				"select " + COLUMNS + """
+						from payment_notices
+						where organization_id = ?
+						  and (?::timestamptz is null or coalesce(occurred_at, received_at) >= ?)
+						  and (?::timestamptz is null or coalesce(occurred_at, received_at) < ?)
+						  and (?::text is null or lower(coalesce(payer_name, '')) like ?)
+						  and (?::text is null or source = ?)
+						order by received_at desc
+						limit ?
+						""",
+				this::notice,
+				organizationId,
+				since == null ? null : Timestamp.from(since),
+				since == null ? null : Timestamp.from(since),
+				until == null ? null : Timestamp.from(until),
+				until == null ? null : Timestamp.from(until),
+				trimmedQuery,
+				trimmedQuery,
+				sourceFilter,
+				sourceFilter,
+				limit);
+	}
+
+	@Override
 	public Optional<PaymentNotice> find(UUID organizationId, UUID noticeId) {
 		return jdbc.query(
 				"select " + COLUMNS + """

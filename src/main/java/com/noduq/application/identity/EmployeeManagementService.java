@@ -3,6 +3,7 @@ package com.noduq.application.identity;
 import com.noduq.domain.identity.Employee;
 import com.noduq.domain.identity.EmployeeCode;
 import com.noduq.domain.identity.IdentityException;
+import com.noduq.domain.identity.LookbackDays;
 import com.noduq.domain.identity.OwnerWorkspace;
 import com.noduq.domain.identity.Username;
 import com.noduq.domain.identity.port.EmployeeCodeHasher;
@@ -63,6 +64,7 @@ public class EmployeeManagementService {
 				codes.hash(plaintext),
 				codes.lookup(plaintext),
 				true,
+				1,
 				Instant.now()));
 		return new CreatedEmployee(stored, plaintext.display());
 	}
@@ -73,7 +75,8 @@ public class EmployeeManagementService {
 			UUID employeeId,
 			String displayName,
 			String rawUsername,
-			Boolean active) {
+			Boolean active,
+			Integer lookbackDays) {
 		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
 		workspace.requireOwner();
 		Employee employee = requireInOrganization(workspace.organization().id(), employeeId);
@@ -87,6 +90,7 @@ public class EmployeeManagementService {
 			}
 		}
 		boolean nextActive = active == null ? employee.active() : active;
+		int lookback = lookbackDays == null ? employee.lookbackDays() : LookbackDays.of(lookbackDays).days();
 		return employees.update(new Employee(
 				employee.id(),
 				employee.organizationId(),
@@ -96,6 +100,7 @@ public class EmployeeManagementService {
 				employee.codeHash(),
 				employee.codeLookup(),
 				nextActive,
+				lookback,
 				employee.createdAt()));
 	}
 
@@ -115,6 +120,7 @@ public class EmployeeManagementService {
 				codes.hash(plaintext),
 				codes.lookup(plaintext),
 				employee.active(),
+				employee.lookbackDays(),
 				employee.createdAt()));
 		return new CreatedEmployee(stored, plaintext.display());
 	}

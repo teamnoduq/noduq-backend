@@ -17,10 +17,13 @@ public class OwnerAccountService {
 
 	private final OwnerWorkspaceRepository workspaces;
 	private final AuthUserDirectory authUsers;
+	private final OrganizationPlanService plans;
 
-	public OwnerAccountService(OwnerWorkspaceRepository workspaces, AuthUserDirectory authUsers) {
+	public OwnerAccountService(
+			OwnerWorkspaceRepository workspaces, AuthUserDirectory authUsers, OrganizationPlanService plans) {
 		this.workspaces = workspaces;
 		this.authUsers = authUsers;
+		this.plans = plans;
 	}
 
 	@Transactional(readOnly = true)
@@ -71,6 +74,11 @@ public class OwnerAccountService {
 	public void deleteAccount(UUID profileId, String confirmation) {
 		OwnerWorkspace workspace = requireWorkspace(profileId);
 		workspace.requireOwner();
+		if (plans.isActive(workspace.organization().id())) {
+			throw IdentityException.conflict(
+					"SUBSCRIPTION_ACTIVE",
+					"Cancela el plan y espera a que se acabe el periodo antes de borrar la cuenta.");
+		}
 		String expected = workspace.organization().name().trim();
 		if (confirmation == null || !equalsIgnoreCaseAndSpace(expected, confirmation)) {
 			throw IdentityException.validation(

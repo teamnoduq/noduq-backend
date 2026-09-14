@@ -17,6 +17,14 @@ public interface PaymentNoticeRepository {
 
 	List<PaymentNotice> latest(UUID organizationId, int limit);
 
+	List<PaymentNotice> search(
+			UUID organizationId,
+			int limit,
+			java.time.Instant since,
+			java.time.Instant until,
+			String query,
+			String source);
+
 	Optional<PaymentNotice> find(UUID organizationId, UUID noticeId);
 
 	Optional<PaymentNotice> findByFingerprint(UUID organizationId, String fingerprint);

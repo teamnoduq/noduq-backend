@@ -30,7 +30,7 @@ public class JdbcEmployeeRepository implements EmployeeRepository {
 	public List<Employee> listByOrganization(UUID organizationId) {
 		return jdbc.query(
 				"""
-						select id, organization_id, branch_id, display_name, username, code_hash, code_lookup, active, created_at
+						select id, organization_id, branch_id, display_name, username, code_hash, code_lookup, active, lookback_days, created_at
 						from employees
 						where organization_id = ?
 						order by created_at
@@ -51,7 +51,7 @@ public class JdbcEmployeeRepository implements EmployeeRepository {
 	public Optional<Employee> findById(UUID employeeId) {
 		return jdbc.query(
 				"""
-						select id, organization_id, branch_id, display_name, username, code_hash, code_lookup, active, created_at
+						select id, organization_id, branch_id, display_name, username, code_hash, code_lookup, active, lookback_days, created_at
 						from employees
 						where id = ?
 						""",
@@ -63,7 +63,7 @@ public class JdbcEmployeeRepository implements EmployeeRepository {
 	public Optional<Employee> findByCodeLookup(String codeLookup) {
 		return jdbc.query(
 				"""
-						select id, organization_id, branch_id, display_name, username, code_hash, code_lookup, active, created_at
+						select id, organization_id, branch_id, display_name, username, code_hash, code_lookup, active, lookback_days, created_at
 						from employees
 						where code_lookup = ?
 						""",
@@ -76,8 +76,8 @@ public class JdbcEmployeeRepository implements EmployeeRepository {
 		jdbc.update(
 				"""
 						insert into employees (
-						  id, organization_id, branch_id, display_name, username, code_hash, code_lookup, active
-						) values (?, ?, ?, ?, ?, ?, ?, ?)
+						  id, organization_id, branch_id, display_name, username, code_hash, code_lookup, active, lookback_days
+						) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
 						""",
 				employee.id(),
 				employee.organizationId(),
@@ -86,7 +86,8 @@ public class JdbcEmployeeRepository implements EmployeeRepository {
 				employee.username(),
 				employee.codeHash(),
 				employee.codeLookup(),
-				employee.active());
+				employee.active(),
+				employee.lookbackDays());
 		return employee;
 	}
 
@@ -95,7 +96,7 @@ public class JdbcEmployeeRepository implements EmployeeRepository {
 		jdbc.update(
 				"""
 						update employees
-						set display_name = ?, username = ?, code_hash = ?, code_lookup = ?, active = ?, updated_at = now()
+						set display_name = ?, username = ?, code_hash = ?, code_lookup = ?, active = ?, lookback_days = ?, updated_at = now()
 						where id = ?
 						""",
 				employee.displayName(),
@@ -103,6 +104,7 @@ public class JdbcEmployeeRepository implements EmployeeRepository {
 				employee.codeHash(),
 				employee.codeLookup(),
 				employee.active(),
+				employee.lookbackDays(),
 				employee.id());
 		return employee;
 	}
@@ -155,6 +157,7 @@ public class JdbcEmployeeRepository implements EmployeeRepository {
 				rs.getString("code_hash"),
 				rs.getString("code_lookup"),
 				rs.getBoolean("active"),
+				rs.getInt("lookback_days"),
 				rs.getObject("created_at", OffsetDateTime.class).toInstant());
 	}
 

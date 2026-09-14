@@ -1,5 +1,6 @@
 package com.noduq.application.payments;
 
+import com.noduq.application.identity.OrganizationPlanService;
 import com.noduq.application.identity.OwnerAccountService;
 import com.noduq.domain.identity.IdentityException;
 import com.noduq.domain.payments.BankSenders;
@@ -42,6 +43,9 @@ class PaymentIngestServiceTest {
 	private OwnerAccountService owners;
 
 	@Mock
+	private OrganizationPlanService plans;
+
+	@Mock
 	private PaymentNoticeRepository notices;
 
 	@Mock
@@ -57,7 +61,7 @@ class PaymentIngestServiceTest {
 				Set.of("alertasynotificaciones@ayn.notificacionesbancolombia.com"),
 				Set.of("validaciondeseguridad@notificacionesbancolombia.com"),
 				true);
-		service = new PaymentIngestService(owners, notices, notifier, senders);
+		service = new PaymentIngestService(owners, plans, notices, notifier, senders);
 	}
 
 	@Test

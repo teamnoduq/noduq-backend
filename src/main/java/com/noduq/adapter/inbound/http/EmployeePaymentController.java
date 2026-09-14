@@ -33,7 +33,8 @@ public class EmployeePaymentController {
 	PaymentResponses.PaymentFeedResponse list(
 			@AuthenticationPrincipal EmployeeCaller caller,
 			@RequestParam(required = false) Integer limit) {
-		return PaymentResponses.PaymentFeedResponse.from(feed.forOrganization(caller.organizationId(), limit));
+		return PaymentResponses.PaymentFeedResponse.from(
+				feed.forEmployee(caller.organizationId(), caller.employeeId(), limit));
 	}
 
 	@PostMapping("/devices")

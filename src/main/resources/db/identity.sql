@@ -46,6 +46,7 @@ create table public.employees (
   code_hash text not null,
   code_lookup text not null unique,
   active boolean not null default true,
+  lookback_days integer not null default 1 check (lookback_days in (1, 3, 7)),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (organization_id, username)
@@ -58,3 +59,15 @@ create table public.employee_sessions (
   revoked_at timestamptz,
   created_at timestamptz not null default now()
 );
+
+create table public.subscriptions (
+  organization_id uuid primary key references public.organizations (id) on delete cascade,
+  entitlement text not null,
+  status text not null check (status in ('active', 'cancelled', 'expired')),
+  period_ends_at timestamptz,
+  store_product_id text,
+  last_event_id text,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.subscriptions enable row level security;

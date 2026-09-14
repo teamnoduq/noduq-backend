@@ -45,7 +45,7 @@ public class EmployeeAdminController {
 			@PathVariable UUID id,
 			@RequestBody PatchEmployeeRequest body) {
 		return IdentityResponses.EmployeeResponse.from(
-				employees.update(OwnerAuth.userId(authentication), id, body.displayName(), body.username(), body.active()));
+				employees.update(OwnerAuth.userId(authentication), id, body.displayName(), body.username(), body.active(), body.lookbackDays()));
 	}
 
 	@PostMapping("/{id}/code")
@@ -62,6 +62,6 @@ public class EmployeeAdminController {
 	public record CreateEmployeeRequest(@NotBlank String displayName, String username, UUID branchId) {
 	}
 
-	public record PatchEmployeeRequest(String displayName, String username, Boolean active) {
+	public record PatchEmployeeRequest(String displayName, String username, Boolean active, Integer lookbackDays) {
 	}
 }

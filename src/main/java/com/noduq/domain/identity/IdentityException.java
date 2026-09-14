@@ -49,4 +49,11 @@ public class IdentityException extends RuntimeException {
 				422,
 				"Esta cuenta todavía no tiene organización. Hay que crear el comercio.");
 	}
+
+	public static IdentityException planRequired() {
+		return new IdentityException(
+				"PLAN_REQUIRED",
+				403,
+				"Hay que activar el plan para usar NODUQ.");
+	}
 }

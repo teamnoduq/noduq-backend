@@ -33,6 +33,9 @@ class OwnerAccountServiceTest {
 	@Mock
 	private AuthUserDirectory authUsers;
 
+	@Mock
+	private OrganizationPlanService plans;
+
 	@InjectMocks
 	private OwnerAccountService service;
 
@@ -55,6 +58,7 @@ class OwnerAccountServiceTest {
 		UUID organizationId = UUID.randomUUID();
 		OwnerWorkspace workspace = workspace(profileId, organizationId, "Café Central");
 		when(workspaces.findByProfileId(profileId)).thenReturn(Optional.of(workspace));
+		when(plans.isActive(organizationId)).thenReturn(false);
 
 		service.deleteAccount(profileId, "Café Central");
 

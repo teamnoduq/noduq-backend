@@ -29,8 +29,11 @@ public class GmailController {
 	}
 
 	@GetMapping("/connect")
-	ConnectResponse connect(Authentication authentication) {
-		return new ConnectResponse(gmail.authorizationUrl(OwnerAuth.userId(authentication)));
+	ConnectResponse connect(
+			Authentication authentication,
+			@RequestParam(value = "returnTo", required = false) String returnTo) {
+		boolean web = "web".equalsIgnoreCase(returnTo);
+		return new ConnectResponse(gmail.authorizationUrl(OwnerAuth.userId(authentication), web));
 	}
 
 	/** Google lands here without our session; the signed state is what names the owner. */

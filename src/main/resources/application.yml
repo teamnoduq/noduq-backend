@@ -24,7 +24,10 @@ noduq:
     client-secret: ${GMAIL_CLIENT_SECRET:}
     redirect-uri: ${GMAIL_REDIRECT_URI:https://api.noduq.app/v1/gmail/callback}
     app-redirect: ${GMAIL_APP_REDIRECT:com.noduq.app://gmail-callback}
+    web-redirect: ${GMAIL_WEB_REDIRECT:https://noduq.app/cuenta}
     poll-ms: ${GMAIL_POLL_MS:45000}
+  billing:
+    webhook-auth: ${REVENUECAT_WEBHOOK_AUTH:}
   employee:
     jwt-secret: ${EMPLOYEE_JWT_SECRET:local-dev-employee-jwt-secret-key}
     session-days: 30

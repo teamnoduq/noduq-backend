@@ -41,13 +41,26 @@ public final class IdentityResponses {
 			ProfileResponse profile,
 			OrganizationResponse organization,
 			String role,
-			List<BranchResponse> branches) {
-		static WorkspaceResponse from(OwnerWorkspace workspace) {
+			List<BranchResponse> branches,
+			PlanResponse plan) {
+		static WorkspaceResponse from(OwnerWorkspace workspace, PlanResponse plan) {
 			return new WorkspaceResponse(
 					ProfileResponse.from(workspace.profile()),
 					OrganizationResponse.from(workspace.organization()),
 					workspace.membership().role().dbValue(),
-					workspace.branches().stream().map(BranchResponse::from).toList());
+					workspace.branches().stream().map(BranchResponse::from).toList(),
+					plan);
+		}
+	}
+
+	public record PlanResponse(String entitlement, String status, Instant periodEndsAt, boolean active) {
+		public static PlanResponse none() {
+			return new PlanResponse(null, "none", null, false);
+		}
+
+		public static PlanResponse from(com.noduq.domain.identity.OrganizationPlan plan) {
+			boolean active = plan.active(Instant.now());
+			return new PlanResponse(plan.entitlement(), plan.status(), plan.periodEndsAt(), active);
 		}
 	}
 
@@ -57,6 +70,7 @@ public final class IdentityResponses {
 			String displayName,
 			String username,
 			boolean active,
+			int lookbackDays,
 			Instant createdAt) {
 		static EmployeeResponse from(Employee employee) {
 			return new EmployeeResponse(
@@ -65,6 +79,7 @@ public final class IdentityResponses {
 					employee.displayName(),
 					employee.username(),
 					employee.active(),
+					employee.lookbackDays(),
 					employee.createdAt());
 		}
 	}
@@ -75,6 +90,7 @@ public final class IdentityResponses {
 			String displayName,
 			String username,
 			boolean active,
+			int lookbackDays,
 			String code) {
 		static CreatedEmployeeResponse from(Employee employee, String code) {
 			return new CreatedEmployeeResponse(
@@ -83,6 +99,7 @@ public final class IdentityResponses {
 					employee.displayName(),
 					employee.username(),
 					employee.active(),
+					employee.lookbackDays(),
 					code);
 		}
 	}
