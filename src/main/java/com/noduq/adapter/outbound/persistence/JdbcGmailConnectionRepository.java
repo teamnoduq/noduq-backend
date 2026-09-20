@@ -1,6 +1,7 @@
 package com.noduq.adapter.outbound.persistence;
 
 import com.noduq.domain.payments.GmailConnection;
+import com.noduq.domain.payments.PendingGmail;
 import com.noduq.domain.payments.port.GmailConnectionRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -78,6 +79,45 @@ public class JdbcGmailConnectionRepository implements GmailConnectionRepository 
 				historyId,
 				Timestamp.from(polledAt),
 				organizationId);
+	}
+
+	@Override
+	public void upsertPending(PendingGmail pending) {
+		jdbc.update(
+				"""
+						insert into gmail_pending (profile_id, gmail_address, refresh_token, history_id)
+						values (?, ?, ?, ?)
+						on conflict (profile_id) do update set
+						  gmail_address = excluded.gmail_address,
+						  refresh_token = excluded.refresh_token,
+						  history_id = excluded.history_id
+						""",
+				pending.profileId(),
+				pending.gmailAddress(),
+				pending.refreshToken(),
+				pending.historyId());
+	}
+
+	@Override
+	public Optional<PendingGmail> findPending(UUID profileId) {
+		return jdbc.query(
+				"""
+						select profile_id, gmail_address, refresh_token, history_id
+						from gmail_pending where profile_id = ?
+						""",
+				rs -> rs.next()
+						? Optional.of(new PendingGmail(
+								rs.getObject("profile_id", UUID.class),
+								rs.getString("gmail_address"),
+								rs.getString("refresh_token"),
+								rs.getString("history_id")))
+						: Optional.empty(),
+				profileId);
+	}
+
+	@Override
+	public void deletePending(UUID profileId) {
+		jdbc.update("delete from gmail_pending where profile_id = ?", profileId);
 	}
 
 	private static GmailConnection row(ResultSet rs) throws SQLException {

@@ -113,6 +113,23 @@ public class JdbcOwnerWorkspaceRepository implements OwnerWorkspaceRepository {
 				"insert into branches (organization_id, name) values (?, ?)",
 				organizationId,
 				branchName);
+		jdbc.update(
+				"""
+						insert into gmail_connections (
+						  organization_id, profile_id, gmail_address, refresh_token, history_id
+						)
+						select ?, profile_id, gmail_address, refresh_token, history_id
+						from gmail_pending
+						where profile_id = ?
+						on conflict (organization_id) do update set
+						  profile_id = excluded.profile_id,
+						  gmail_address = excluded.gmail_address,
+						  refresh_token = excluded.refresh_token,
+						  history_id = excluded.history_id
+						""",
+				organizationId,
+				profileId);
+		jdbc.update("delete from gmail_pending where profile_id = ?", profileId);
 		return findByProfileId(profileId).orElseThrow(() -> IdentityException.notFound("No se pudo crear la organización."));
 	}
 
@@ -145,6 +162,7 @@ public class JdbcOwnerWorkspaceRepository implements OwnerWorkspaceRepository {
 		jdbc.update("delete from branches where organization_id = ?", organizationId);
 		jdbc.update("delete from organization_members where organization_id = ?", organizationId);
 		jdbc.update("delete from organizations where id = ?", organizationId);
+		jdbc.update("delete from gmail_pending where profile_id = ?", profileId);
 		jdbc.update("delete from profiles where id = ?", profileId);
 	}
 

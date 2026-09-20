@@ -54,3 +54,14 @@ create table public.gmail_connections (
 );
 
 alter table public.gmail_connections enable row level security;
+
+-- Linked during onboarding, before bootstrap creates the shop.
+create table public.gmail_pending (
+  profile_id uuid primary key references auth.users (id) on delete cascade,
+  gmail_address text not null,
+  refresh_token text not null,
+  history_id text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.gmail_pending enable row level security;

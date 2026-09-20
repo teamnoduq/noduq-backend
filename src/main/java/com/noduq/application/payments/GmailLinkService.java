@@ -6,6 +6,7 @@ import com.noduq.application.identity.OwnerAccountService;
 import com.noduq.domain.identity.IdentityException;
 import com.noduq.domain.identity.OwnerWorkspace;
 import com.noduq.domain.payments.GmailConnection;
+import com.noduq.domain.payments.PendingGmail;
 import com.noduq.domain.payments.port.GmailConnectionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,13 +64,18 @@ public class GmailLinkService {
 	}
 
 	public Status status(UUID profileId) {
-		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
-		workspace.requireOwner();
-		Optional<GmailConnection> linked = connections.findByOrganization(workspace.organization().id());
-		return new Status(
-				gmail.configured(),
-				linked.isPresent(),
-				linked.map(GmailConnection::gmailAddress).orElse(null));
+		Optional<OwnerWorkspace> workspace = owners.findWorkspace(profileId);
+		if (workspace.isPresent()) {
+			workspace.get().requireOwner();
+			Optional<GmailConnection> linked = connections.findByOrganization(workspace.get().organization().id());
+			return new Status(
+					gmail.configured(),
+					linked.isPresent(),
+					linked.map(GmailConnection::gmailAddress).orElse(null));
+		}
+		return connections.findPending(profileId)
+				.map(pending -> new Status(gmail.configured(), true, pending.gmailAddress()))
+				.orElseGet(() -> new Status(gmail.configured(), false, null));
 	}
 
 	public String authorizationUrl(UUID profileId) {
@@ -82,46 +88,62 @@ public class GmailLinkService {
 					"GMAIL_NOT_CONFIGURED",
 					"Gmail todavía no está configurado en el servidor.");
 		}
-		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
-		workspace.requireOwner();
+		owners.findWorkspace(profileId).ifPresent(OwnerWorkspace::requireOwner);
 		return gmail.authorizationUrl(sign(profileId, web));
 	}
 
 	public String finish(String code, String state) {
 		SignedState signed = readState(state);
 		UUID profileId = signed.profileId();
-		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
-		workspace.requireOwner();
 		GmailMailbox.Tokens tokens = gmail.exchange(code);
 		if (tokens.accessToken() == null) {
 			throw IdentityException.validation("GMAIL_DENIED", "Google no entregó el acceso a Gmail.");
 		}
 		GmailMailbox.Profile profile = gmail.profile(tokens.accessToken());
+		Optional<OwnerWorkspace> workspace = owners.findWorkspace(profileId);
 		String refresh = tokens.refreshToken();
 		if (refresh == null) {
-			refresh = connections.findByOrganization(workspace.organization().id())
+			refresh = workspace
+					.flatMap(shop -> connections.findByOrganization(shop.organization().id()))
 					.map(GmailConnection::refreshToken)
-					.orElseThrow(() -> IdentityException.validation(
-							"GMAIL_DENIED",
-							"Google no entregó el permiso persistente. Vuelve a conectar Gmail."));
+					.orElseGet(() -> connections.findPending(profileId).map(PendingGmail::refreshToken).orElse(null));
+			if (refresh == null) {
+				throw IdentityException.validation(
+						"GMAIL_DENIED",
+						"Google no entregó el permiso persistente. Vuelve a conectar Gmail.");
+			}
 		}
-		connections.upsert(new GmailConnection(
-				workspace.organization().id(),
-				profileId,
-				profile.emailAddress(),
-				refresh,
-				profile.historyId(),
-				null));
-		log.info("Gmail linked org={} address={}", workspace.organization().id(), profile.emailAddress());
-		poll(connections.findByOrganization(workspace.organization().id()).orElseThrow());
+		if (workspace.isPresent()) {
+			OwnerWorkspace shop = workspace.get();
+			shop.requireOwner();
+			connections.upsert(new GmailConnection(
+					shop.organization().id(),
+					profileId,
+					profile.emailAddress(),
+					refresh,
+					profile.historyId(),
+					null));
+			log.info("Gmail linked org={} address={}", shop.organization().id(), profile.emailAddress());
+			poll(connections.findByOrganization(shop.organization().id()).orElseThrow());
+		} else {
+			connections.upsertPending(new PendingGmail(
+					profileId,
+					profile.emailAddress(),
+					refresh,
+					profile.historyId()));
+			log.info("Gmail pending profile={} address={}", profileId, profile.emailAddress());
+		}
 		String target = signed.web() ? webRedirect : appRedirect;
 		return target.contains("?") ? target + "&gmail=ok" : target + "?gmail=ok";
 	}
 
 	public void disconnect(UUID profileId) {
-		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
-		workspace.requireOwner();
-		connections.delete(workspace.organization().id());
+		Optional<OwnerWorkspace> workspace = owners.findWorkspace(profileId);
+		if (workspace.isPresent()) {
+			workspace.get().requireOwner();
+			connections.delete(workspace.get().organization().id());
+		}
+		connections.deletePending(profileId);
 	}
 
 	public void pollAll() {
