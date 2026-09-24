@@ -158,11 +158,15 @@ public class JdbcOwnerWorkspaceRepository implements OwnerWorkspaceRepository {
 
 	@Override
 	public void deleteBusiness(UUID organizationId, UUID profileId) {
+		jdbc.update("delete from payment_notices where organization_id = ?", organizationId);
+		jdbc.update("delete from devices where organization_id = ?", organizationId);
+		jdbc.update("delete from gmail_connections where organization_id = ?", organizationId);
+		jdbc.update("delete from gmail_pending where profile_id = ?", profileId);
+		jdbc.update("delete from subscriptions where organization_id = ?", organizationId);
 		jdbc.update("delete from employees where organization_id = ?", organizationId);
 		jdbc.update("delete from branches where organization_id = ?", organizationId);
 		jdbc.update("delete from organization_members where organization_id = ?", organizationId);
 		jdbc.update("delete from organizations where id = ?", organizationId);
-		jdbc.update("delete from gmail_pending where profile_id = ?", profileId);
 		jdbc.update("delete from profiles where id = ?", profileId);
 	}
 

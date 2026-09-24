@@ -5,10 +5,11 @@ import com.noduq.domain.identity.port.AuthUserDirectory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientResponseException;
 
+import java.time.Duration;
 import java.util.UUID;
 
 @Component
@@ -21,7 +22,10 @@ public class SupabaseAuthUserDirectory implements AuthUserDirectory {
 			@Value("${noduq.supabase.url}") String supabaseUrl,
 			@Value("${noduq.supabase.service-role-key}") String serviceRoleKey) {
 		this.serviceRoleKey = serviceRoleKey == null ? "" : serviceRoleKey;
-		this.http = RestClient.builder().baseUrl(supabaseUrl).build();
+		SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+		factory.setConnectTimeout(Duration.ofSeconds(5));
+		factory.setReadTimeout(Duration.ofSeconds(8));
+		this.http = RestClient.builder().baseUrl(supabaseUrl).requestFactory(factory).build();
 	}
 
 	@Override
@@ -39,10 +43,12 @@ public class SupabaseAuthUserDirectory implements AuthUserDirectory {
 					.accept(MediaType.APPLICATION_JSON)
 					.retrieve()
 					.toBodilessEntity();
-		} catch (RestClientResponseException ex) {
+		} catch (IdentityException ex) {
+			throw ex;
+		} catch (Exception ex) {
 			throw IdentityException.validation(
 					"AUTH_DELETE_FAILED",
-					"El local se iba a borrar, pero Auth no eliminó la sesión. Inténtalo de nuevo.");
+					"No se pudo borrar el acceso. Inténtalo de nuevo.");
 		}
 	}
 }
