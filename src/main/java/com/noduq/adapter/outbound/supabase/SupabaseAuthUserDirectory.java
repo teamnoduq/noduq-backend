@@ -4,16 +4,22 @@ import com.noduq.domain.identity.IdentityException;
 import com.noduq.domain.identity.port.AuthUserDirectory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.UUID;
 
 @Component
 public class SupabaseAuthUserDirectory implements AuthUserDirectory {
+
+	private static final Logger log = LoggerFactory.getLogger(SupabaseAuthUserDirectory.class);
 
 	private final RestClient http;
 	private final String serviceRoleKey;
@@ -24,7 +30,7 @@ public class SupabaseAuthUserDirectory implements AuthUserDirectory {
 		this.serviceRoleKey = serviceRoleKey == null ? "" : serviceRoleKey;
 		SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
 		factory.setConnectTimeout(Duration.ofSeconds(5));
-		factory.setReadTimeout(Duration.ofSeconds(8));
+		factory.setReadTimeout(Duration.ofSeconds(20));
 		this.http = RestClient.builder().baseUrl(supabaseUrl).requestFactory(factory).build();
 	}
 
@@ -43,12 +49,13 @@ public class SupabaseAuthUserDirectory implements AuthUserDirectory {
 					.accept(MediaType.APPLICATION_JSON)
 					.retrieve()
 					.toBodilessEntity();
-		} catch (IdentityException ex) {
-			throw ex;
+		} catch (RestClientResponseException ex) {
+			if (ex.getStatusCode().isSameCodeAs(HttpStatus.NOT_FOUND)) {
+				return;
+			}
+			log.warn("Auth admin delete failed id={} status={}", authUserId, ex.getStatusCode().value(), ex);
 		} catch (Exception ex) {
-			throw IdentityException.validation(
-					"AUTH_DELETE_FAILED",
-					"No se pudo borrar el acceso. Inténtalo de nuevo.");
+			log.warn("Auth admin delete failed id={}", authUserId, ex);
 		}
 	}
 }

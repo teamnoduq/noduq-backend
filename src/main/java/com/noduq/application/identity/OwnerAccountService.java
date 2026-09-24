@@ -8,12 +8,16 @@ import com.noduq.domain.identity.port.AuthUserDirectory;
 import com.noduq.domain.identity.port.OwnerWorkspaceRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Optional;
 import java.util.UUID;
 
 @Service
 public class OwnerAccountService {
+
+	private static final Logger log = LoggerFactory.getLogger(OwnerAccountService.class);
 
 	private final OwnerWorkspaceRepository workspaces;
 	private final AuthUserDirectory authUsers;
@@ -70,7 +74,6 @@ public class OwnerAccountService {
 		return requireWorkspace(profileId);
 	}
 
-	@Transactional
 	public void deleteAccount(UUID profileId, String confirmation) {
 		OwnerWorkspace workspace = requireWorkspace(profileId);
 		workspace.requireOwner();
@@ -86,7 +89,11 @@ public class OwnerAccountService {
 					"Escribe el nombre de la organización para borrar la cuenta.");
 		}
 		workspaces.deleteBusiness(workspace.organization().id(), profileId);
-		authUsers.deleteAuthUser(profileId);
+		try {
+			authUsers.deleteAuthUser(profileId);
+		} catch (RuntimeException ex) {
+			log.warn("Shop wiped; Auth delete failed profile={}", profileId, ex);
+		}
 	}
 
 	private static String requiredName(String value, String code, String message) {

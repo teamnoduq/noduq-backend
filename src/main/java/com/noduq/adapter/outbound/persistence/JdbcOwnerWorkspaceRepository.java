@@ -10,6 +10,7 @@ import com.noduq.domain.identity.Profile;
 import com.noduq.domain.identity.port.OwnerWorkspaceRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -157,6 +158,7 @@ public class JdbcOwnerWorkspaceRepository implements OwnerWorkspaceRepository {
 	}
 
 	@Override
+	@Transactional
 	public void deleteBusiness(UUID organizationId, UUID profileId) {
 		jdbc.update("delete from payment_notices where organization_id = ?", organizationId);
 		jdbc.update("delete from devices where organization_id = ?", organizationId);
