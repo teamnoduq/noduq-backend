@@ -1,7 +1,9 @@
 package com.noduq.adapter.inbound.http;
 
 import com.noduq.application.payments.PaymentFeedService;
+import com.noduq.application.payments.PaymentHistoryService;
 import com.noduq.application.payments.PaymentIngestService;
+import com.noduq.domain.payments.PaymentHistoryImport;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.security.core.Authentication;
@@ -21,10 +23,12 @@ public class PaymentController {
 
 	private final PaymentFeedService feed;
 	private final PaymentIngestService ingest;
+	private final PaymentHistoryService history;
 
-	public PaymentController(PaymentFeedService feed, PaymentIngestService ingest) {
+	public PaymentController(PaymentFeedService feed, PaymentIngestService ingest, PaymentHistoryService history) {
 		this.feed = feed;
 		this.ingest = ingest;
+		this.history = history;
 	}
 
 	@GetMapping
@@ -53,5 +57,49 @@ public class PaymentController {
 	}
 
 	public record SmsRequest(@NotBlank String sender, @NotBlank String message, Instant sentAt) {
+	}
+
+	@GetMapping("/history")
+	HistoryResponse history(Authentication authentication) {
+		return HistoryResponse.from(history.status(OwnerAuth.userId(authentication)));
+	}
+
+	@PostMapping("/history/defer")
+	HistoryResponse deferHistory(Authentication authentication) {
+		return HistoryResponse.from(history.defer(OwnerAuth.userId(authentication)));
+	}
+
+	@PostMapping("/history/start")
+	HistoryResponse startHistory(Authentication authentication) {
+		return HistoryResponse.from(history.start(OwnerAuth.userId(authentication)));
+	}
+
+	@PostMapping("/history/batches")
+	HistoryResponse historyBatch(Authentication authentication) {
+		return HistoryResponse.from(history.pullNext(OwnerAuth.userId(authentication)));
+	}
+
+	public record HistoryResponse(
+			String status,
+			Instant windowFrom,
+			Instant windowUntil,
+			int total,
+			int processed,
+			int stored,
+			int percent) {
+
+		static HistoryResponse from(PaymentHistoryImport row) {
+			if (row == null) {
+				return new HistoryResponse("available", null, null, 0, 0, 0, 0);
+			}
+			return new HistoryResponse(
+					row.status(),
+					row.windowFrom(),
+					row.windowUntil(),
+					row.totalMessages(),
+					row.processedMessages(),
+					row.storedMessages(),
+					row.percent());
+		}
 	}
 }

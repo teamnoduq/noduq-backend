@@ -65,3 +65,21 @@ create table public.gmail_pending (
 );
 
 alter table public.gmail_pending enable row level security;
+
+-- One backfill per shop. The phone reads its own inbox and posts it in small batches.
+create table public.payment_history_imports (
+  organization_id uuid primary key references public.organizations (id) on delete cascade,
+  status text not null check (status in ('deferred', 'running', 'done')),
+  window_from timestamptz not null,
+  window_until timestamptz not null,
+  total_messages int not null default 0,
+  processed_messages int not null default 0,
+  stored_messages int not null default 0,
+  cursor_id bigint,
+  page_token text,
+  started_at timestamptz,
+  finished_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.payment_history_imports enable row level security;

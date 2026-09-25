@@ -11,6 +11,7 @@ El dueño entra con JWT de Supabase Auth. El empleado entra con usuario + códig
 - Sesión de empleado (JWT propio). Regenerar el código invalida sesiones
 - SMS del 85540 (teléfono del dueño) y correo de Bancolombia (Gmail del local)
 - Plan `noduq_sms` (Android, SMS + correo). Sin plan activo no entra al mostrador
+- Histórico: una vez por local, del 1 de enero de 2026 al día en que se pide. Sale del correo del banco, por páginas.
 - Webhook `POST /v1/billing/revenuecat` y `POST /v1/billing/activate` (puente Test Store)
 - Borrar cuenta: hay que escribir el nombre del local. Si el plan lo cobra Play, primero se cancela la renovación en RevenueCat.
 
@@ -43,6 +44,10 @@ En Windows: `mvnw.cmd`. Maven usa `JAVA_HOME`; este proyecto pide JDK 21.
 | GET | `/v1/employee/me` | empleado |
 | GET | `/v1/payments` | dueño (`q`, `since`, `until`, `source`) |
 | POST | `/v1/payments/sms` | dueño (teléfono) |
+| GET | `/v1/payments/history` | dueño (`available`, `deferred`, `running`, `done`) |
+| POST | `/v1/payments/history/start` | dueño, una vez; sigue si ya iba |
+| POST | `/v1/payments/history/defer` | dueño, esconder el aviso en Pagos |
+| POST | `/v1/payments/history/batches` | dueño, la siguiente página del correo |
 | GET | `/v1/employee/payments` | empleado (recortado por lookback) |
 | GET | `/v1/gmail` · `/v1/gmail/connect` | dueño (`returnTo=web` vuelve al panel) |
 | GET | `/v1/gmail/callback` | Google, público |

@@ -82,6 +82,50 @@ public class GmailMailbox {
 		return new Profile(text(body, "emailAddress"), text(body, "historyId"));
 	}
 
+	/**
+	 * One page of bank mail inside a window. {@code listed} is how many Gmail returned,
+	 * including ones outside the exact instants. {@code nextPageToken} is null on the last page.
+	 */
+	public MailPage pageReceipts(String accessToken, Instant from, Instant until, String pageToken) {
+		String query = "from:notificacionesbancolombia.com after:"
+				+ gmailDay(from, -1)
+				+ " before:"
+				+ gmailDay(until, 1);
+		String uri = GMAIL + "/messages?q=" + url(query) + "&maxResults=20";
+		if (pageToken != null && !pageToken.isBlank()) {
+			uri += "&pageToken=" + url(pageToken);
+		}
+		JsonNode list = get(accessToken, uri);
+		JsonNode messages = list.path("messages");
+		List<BankMail> receipts = new ArrayList<>();
+		int listed = 0;
+		if (messages.isArray()) {
+			for (JsonNode message : messages) {
+				listed++;
+				String id = text(message, "id");
+				if (id == null) {
+					continue;
+				}
+				try {
+					BankMail mail = read(accessToken, id);
+					if (mail != null && !mail.sentAt().isBefore(from) && !mail.sentAt().isAfter(until)) {
+						receipts.add(mail);
+					}
+				} catch (RuntimeException ex) {
+					log.warn("Could not read Gmail message {}: {}", id, ex.toString());
+				}
+			}
+		}
+		return new MailPage(receipts, text(list, "nextPageToken"), list.path("resultSizeEstimate").asInt(0), listed);
+	}
+
+	private static String gmailDay(Instant instant, int plusDays) {
+		return instant.atZone(java.time.ZoneId.of("America/Bogota"))
+				.toLocalDate()
+				.plusDays(plusDays)
+				.format(java.time.format.DateTimeFormatter.ofPattern("yyyy/MM/dd"));
+	}
+
 	public List<BankMail> recentReceipts(String accessToken, Instant notBefore) {
 		JsonNode list = get(accessToken, GMAIL + "/messages?q=" + url(QUERY) + "&maxResults=20");
 		JsonNode messages = list.path("messages");
@@ -223,5 +267,8 @@ public class GmailMailbox {
 	}
 
 	public record BankMail(String from, String body, Instant sentAt) {
+	}
+
+	public record MailPage(List<BankMail> receipts, String nextPageToken, int estimate, int listed) {
 	}
 }

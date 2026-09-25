@@ -82,7 +82,21 @@ public class PaymentIngestService {
 				workspace.organization().merchantLast4(),
 				sender,
 				body,
-				sentAt);
+				sentAt,
+				true);
+	}
+
+	/** A receipt from the phone's old inbox. The counter is not rung; the date on the message is kept. */
+	public Ingested ingestHistoricalSms(
+			UUID organizationId,
+			String merchantLast4,
+			String sender,
+			String body,
+			Instant sentAt) {
+		if (!historicalMoment(sentAt)) {
+			return new Ingested(Outcome.IGNORED_SENDER, null);
+		}
+		return ingestSms(organizationId, merchantLast4, sender, body, sentAt, false);
 	}
 
 	public Ingested ingestSms(
@@ -91,6 +105,16 @@ public class PaymentIngestService {
 			String sender,
 			String body,
 			Instant sentAt) {
+		return ingestSms(organizationId, merchantLast4, sender, body, sentAt, true);
+	}
+
+	private Ingested ingestSms(
+			UUID organizationId,
+			String merchantLast4,
+			String sender,
+			String body,
+			Instant sentAt,
+			boolean announce) {
 		String text = require(body);
 		if (!senders.isQrPaymentSms(sender)) {
 			log.info(
@@ -109,7 +133,7 @@ public class PaymentIngestService {
 			return new Ingested(Outcome.IGNORED_OTHER_ACCOUNT, null);
 		}
 
-		Instant receivedAt = receivedAt(sentAt);
+		Instant receivedAt = announce ? receivedAt(sentAt) : sentAt;
 		SmsPaymentParser.Reading reading = SmsPaymentParser.read(text, receivedAt);
 		PaymentNotice draft = new PaymentNotice(
 				UUID.randomUUID(),
@@ -128,7 +152,7 @@ public class PaymentIngestService {
 		if (stored.isEmpty()) {
 			log.info("SMS already seen org={}", organizationId);
 			PaymentNotice existing = notices.findByFingerprint(organizationId, draft.fingerprint()).orElse(null);
-			if (existing != null) {
+			if (existing != null && announce) {
 				notifier.announce(existing);
 			}
 			return new Ingested(Outcome.DUPLICATE, existing);
@@ -145,7 +169,9 @@ public class PaymentIngestService {
 					organizationId,
 					notice.unparsedExcerpt());
 		}
-		notifier.announce(notice);
+		if (announce) {
+			notifier.announce(notice);
+		}
 		return new Ingested(Outcome.STORED, notice);
 	}
 
@@ -166,13 +192,40 @@ public class PaymentIngestService {
 			String from,
 			String body,
 			Instant sentAt) {
+		return ingestEmail(organizationId, merchantLast4, from, body, sentAt, true);
+	}
+
+	/** An old bank email. The date on the message is kept and the counter is not rung. */
+	public Ingested ingestHistoricalEmail(
+			UUID organizationId,
+			String merchantLast4,
+			String from,
+			String body,
+			Instant sentAt) {
+		if (!historicalMoment(sentAt)) {
+			return new Ingested(Outcome.IGNORED_SENDER, null);
+		}
+		return ingestEmail(organizationId, merchantLast4, from, body, sentAt, false);
+	}
+
+	private Ingested ingestEmail(
+			UUID organizationId,
+			String merchantLast4,
+			String from,
+			String body,
+			Instant sentAt,
+			boolean announce) {
 		String text = requireEmail(body);
 		if (!senders.isQrPaymentEmail(from)) {
-			log.info("Email ignored org={} from={}", organizationId, from);
+			if (announce) {
+				log.info("Email ignored org={} from={}", organizationId, from);
+			}
 			return new Ingested(Outcome.IGNORED_SENDER, null);
 		}
 		if (!senders.looksLikeQrPayment(text)) {
-			log.info("Email ignored org={}: body does not mention the QR", organizationId);
+			if (announce) {
+				log.info("Email ignored org={}: body does not mention the QR", organizationId);
+			}
 			return new Ingested(Outcome.IGNORED_NOT_QR, null);
 		}
 
@@ -182,7 +235,7 @@ public class PaymentIngestService {
 			return new Ingested(Outcome.IGNORED_OTHER_ACCOUNT, null);
 		}
 
-		Instant receivedAt = receivedAt(sentAt);
+		Instant receivedAt = announce ? receivedAt(sentAt) : sentAt;
 		String fingerprint = PaymentFingerprint.of(text, receivedAt);
 		Optional<PaymentNotice> existing = notices.findByFingerprint(organizationId, fingerprint);
 		if (existing.isPresent()) {
@@ -216,7 +269,9 @@ public class PaymentIngestService {
 		}
 		PaymentNotice notice = stored.get();
 		log.info("Payment notice {} stored from email org={} amount={}", notice.id(), organizationId, notice.amount());
-		notifier.announce(notice);
+		if (announce) {
+			notifier.announce(notice);
+		}
 		return new Ingested(Outcome.STORED, notice);
 	}
 
@@ -238,6 +293,15 @@ public class PaymentIngestService {
 			throw IdentityException.validation("EMAIL_BODY_TOO_LONG", "Ese correo es demasiado largo.");
 		}
 		return body;
+	}
+
+	static boolean historicalMoment(Instant sentAt) {
+		if (sentAt == null) {
+			return false;
+		}
+		Instant floor = Instant.parse("2025-12-31T19:00:00Z");
+		Instant ceiling = Instant.now().plus(Duration.ofMinutes(10));
+		return !sentAt.isBefore(floor) && !sentAt.isAfter(ceiling);
 	}
 
 	private static Instant receivedAt(Instant sentAt) {
