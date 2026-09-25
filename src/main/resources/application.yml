@@ -28,6 +28,7 @@ noduq:
     poll-ms: ${GMAIL_POLL_MS:45000}
   billing:
     webhook-auth: ${REVENUECAT_WEBHOOK_AUTH:}
+    secret-api-key: ${REVENUECAT_SECRET_API_KEY:}
   employee:
     jwt-secret: ${EMPLOYEE_JWT_SECRET:local-dev-employee-jwt-secret-key}
     session-days: 30

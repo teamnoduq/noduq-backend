@@ -12,13 +12,13 @@ El dueño entra con JWT de Supabase Auth. El empleado entra con usuario + códig
 - SMS del 85540 (teléfono del dueño) y correo de Bancolombia (Gmail del local)
 - Plan `noduq_sms` (Android, SMS + correo). Sin plan activo no entra al mostrador
 - Webhook `POST /v1/billing/revenuecat` y `POST /v1/billing/activate` (puente Test Store)
-- Borrar cuenta: hay que escribir el nombre del local. Bloqueado si el plan sigue activo
+- Borrar cuenta: hay que escribir el nombre del local. Si el plan lo cobra Play, primero se cancela la renovación en RevenueCat.
 
 ## Arranque local
 
 Copia `.env.example` a `.env`. En Supabase → Project Settings → Database, usa la URI de Postgres en forma JDBC (`jdbc:postgresql://...:5432/postgres`).
 
-`EMPLOYEE_JWT_SECRET` mínimo 32 caracteres. `SUPABASE_SERVICE_ROLE_KEY` solo hace falta para borrar la cuenta de Auth. `REVENUECAT_WEBHOOK_AUTH` es el header `Authorization` que manda RevenueCat.
+`EMPLOYEE_JWT_SECRET` mínimo 32 caracteres. `SUPABASE_SERVICE_ROLE_KEY` solo hace falta para borrar la cuenta de Auth. `REVENUECAT_WEBHOOK_AUTH` es el header `Authorization` que manda RevenueCat. `REVENUECAT_SECRET_API_KEY` es la clave secreta (`sk_`) con la que el servidor cancela la renovación de Play al borrar la cuenta.
 
 ```bash
 ./mvnw test

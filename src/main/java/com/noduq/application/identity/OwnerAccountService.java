@@ -5,12 +5,15 @@ import com.noduq.domain.identity.IdentityException;
 import com.noduq.domain.identity.OwnerWorkspace;
 import com.noduq.domain.identity.Profile;
 import com.noduq.domain.identity.port.AuthUserDirectory;
+import com.noduq.domain.identity.port.OrganizationPlanRepository;
 import com.noduq.domain.identity.port.OwnerWorkspaceRepository;
+import com.noduq.domain.identity.port.PlaySubscriptionGateway;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -21,10 +24,18 @@ public class OwnerAccountService {
 
 	private final OwnerWorkspaceRepository workspaces;
 	private final AuthUserDirectory authUsers;
+	private final OrganizationPlanRepository plans;
+	private final PlaySubscriptionGateway play;
 
-	public OwnerAccountService(OwnerWorkspaceRepository workspaces, AuthUserDirectory authUsers) {
+	public OwnerAccountService(
+			OwnerWorkspaceRepository workspaces,
+			AuthUserDirectory authUsers,
+			OrganizationPlanRepository plans,
+			PlaySubscriptionGateway play) {
 		this.workspaces = workspaces;
 		this.authUsers = authUsers;
+		this.plans = plans;
+		this.play = play;
 	}
 
 	@Transactional(readOnly = true)
@@ -74,12 +85,20 @@ public class OwnerAccountService {
 	public void deleteAccount(UUID profileId) {
 		OwnerWorkspace workspace = requireWorkspace(profileId);
 		workspace.requireOwner();
-		workspaces.deleteBusiness(workspace.organization().id(), profileId);
+		UUID organizationId = workspace.organization().id();
+		if (renewing(organizationId)) {
+			play.cancelRenewal(organizationId);
+		}
+		workspaces.deleteBusiness(organizationId, profileId);
 		try {
 			authUsers.deleteAuthUser(profileId);
 		} catch (RuntimeException ex) {
 			log.warn("Shop wiped; Auth delete failed profile={}", profileId, ex);
 		}
+	}
+
+	private boolean renewing(UUID organizationId) {
+		return plans.find(organizationId).filter(plan -> plan.active(Instant.now())).isPresent();
 	}
 
 	private static String requiredName(String value, String code, String message) {
