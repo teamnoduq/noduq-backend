@@ -1,6 +1,5 @@
 package com.noduq.application.identity;
 
-import com.noduq.domain.identity.IdentityException;
 import com.noduq.domain.identity.MemberRole;
 import com.noduq.domain.identity.Organization;
 import com.noduq.domain.identity.OrganizationMember;
@@ -19,8 +18,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -33,23 +30,20 @@ class OwnerAccountServiceTest {
 	@Mock
 	private AuthUserDirectory authUsers;
 
-	@Mock
-	private OrganizationPlanService plans;
-
 	@InjectMocks
 	private OwnerAccountService service;
 
 	@Test
-	void deleteAccountRequiresExactOrganizationName() {
+	void deleteAccountWipesShopEvenIfPlanIsActive() {
 		UUID profileId = UUID.randomUUID();
 		UUID organizationId = UUID.randomUUID();
 		OwnerWorkspace workspace = workspace(profileId, organizationId, "Café Central");
 		when(workspaces.findByProfileId(profileId)).thenReturn(Optional.of(workspace));
 
-		IdentityException error = assertThrows(
-				IdentityException.class,
-				() -> service.deleteAccount(profileId, "otro nombre"));
-		assertEquals("CONFIRMATION_MISMATCH", error.code());
+		service.deleteAccount(profileId);
+
+		verify(workspaces).deleteBusiness(organizationId, profileId);
+		verify(authUsers).deleteAuthUser(profileId);
 	}
 
 	@Test
@@ -58,9 +52,8 @@ class OwnerAccountServiceTest {
 		UUID organizationId = UUID.randomUUID();
 		OwnerWorkspace workspace = workspace(profileId, organizationId, "Café Central");
 		when(workspaces.findByProfileId(profileId)).thenReturn(Optional.of(workspace));
-		when(plans.isActive(organizationId)).thenReturn(false);
 
-		service.deleteAccount(profileId, "Café Central");
+		service.deleteAccount(profileId);
 
 		verify(workspaces).deleteBusiness(organizationId, profileId);
 		verify(authUsers).deleteAuthUser(profileId);

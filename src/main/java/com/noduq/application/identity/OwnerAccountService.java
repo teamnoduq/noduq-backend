@@ -21,13 +21,10 @@ public class OwnerAccountService {
 
 	private final OwnerWorkspaceRepository workspaces;
 	private final AuthUserDirectory authUsers;
-	private final OrganizationPlanService plans;
 
-	public OwnerAccountService(
-			OwnerWorkspaceRepository workspaces, AuthUserDirectory authUsers, OrganizationPlanService plans) {
+	public OwnerAccountService(OwnerWorkspaceRepository workspaces, AuthUserDirectory authUsers) {
 		this.workspaces = workspaces;
 		this.authUsers = authUsers;
-		this.plans = plans;
 	}
 
 	@Transactional(readOnly = true)
@@ -74,20 +71,9 @@ public class OwnerAccountService {
 		return requireWorkspace(profileId);
 	}
 
-	public void deleteAccount(UUID profileId, String confirmation) {
+	public void deleteAccount(UUID profileId) {
 		OwnerWorkspace workspace = requireWorkspace(profileId);
 		workspace.requireOwner();
-		if (plans.isActive(workspace.organization().id())) {
-			throw IdentityException.conflict(
-					"SUBSCRIPTION_ACTIVE",
-					"Cancela el plan y espera a que se acabe el periodo antes de borrar la cuenta.");
-		}
-		String expected = workspace.organization().name().trim();
-		if (confirmation == null || !equalsIgnoreCaseAndSpace(expected, confirmation)) {
-			throw IdentityException.validation(
-					"CONFIRMATION_MISMATCH",
-					"Escribe el nombre de la organización para borrar la cuenta.");
-		}
 		workspaces.deleteBusiness(workspace.organization().id(), profileId);
 		try {
 			authUsers.deleteAuthUser(profileId);
@@ -105,11 +91,5 @@ public class OwnerAccountService {
 			throw IdentityException.validation(code, "El nombre debe tener entre 2 y 80 caracteres.");
 		}
 		return trimmed;
-	}
-
-	private static boolean equalsIgnoreCaseAndSpace(String expected, String actual) {
-		String left = expected.replaceAll("\\s+", " ").trim();
-		String right = actual.replaceAll("\\s+", " ").trim();
-		return left.equalsIgnoreCase(right);
 	}
 }

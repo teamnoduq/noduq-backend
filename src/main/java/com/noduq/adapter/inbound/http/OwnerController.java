@@ -3,7 +3,6 @@ package com.noduq.adapter.inbound.http;
 import com.noduq.application.identity.OrganizationPlanService;
 import com.noduq.application.identity.OwnerAccountService;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -65,8 +64,8 @@ public class OwnerController {
 	}
 
 	@DeleteMapping("/me")
-	void deleteMe(Authentication authentication, @Valid @RequestBody DeleteAccountRequest body) {
-		owners.deleteAccount(OwnerAuth.userId(authentication), body.confirmation());
+	void deleteMe(Authentication authentication) {
+		owners.deleteAccount(OwnerAuth.userId(authentication));
 	}
 
 	@GetMapping("/organization")
@@ -91,9 +90,6 @@ public class OwnerController {
 	}
 
 	public record PatchOrganizationRequest(String name, String merchantLast4, String smsPhone) {
-	}
-
-	public record DeleteAccountRequest(@NotBlank String confirmation) {
 	}
 
 	private IdentityResponses.WorkspaceResponse withPlan(com.noduq.domain.identity.OwnerWorkspace workspace) {
