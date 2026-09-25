@@ -47,6 +47,8 @@ En Windows: `mvnw.cmd`. Maven usa `JAVA_HOME`; este proyecto pide JDK 21.
 | GET | `/v1/gmail` · `/v1/gmail/connect` | dueño (`returnTo=web` vuelve al panel) |
 | GET | `/v1/gmail/callback` | Google, público |
 | POST | `/v1/billing/activate` | dueño |
+| POST | `/v1/billing/cancel` | dueño (sigue activo hasta `periodEndsAt`) |
+| POST | `/v1/billing/reactivate` | dueño |
 | POST | `/v1/billing/revenuecat` | RevenueCat, público con header |
 
 El esquema está en Supabase. El archivo `src/main/resources/db/identity.sql` es copia de referencia; Spring no lo aplica.

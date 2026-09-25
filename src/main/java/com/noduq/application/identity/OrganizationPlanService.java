@@ -63,6 +63,48 @@ public class OrganizationPlanService {
 		return plan;
 	}
 
+	public OrganizationPlan cancelFromClient(UUID organizationId) {
+		OrganizationPlan current = plans.find(organizationId)
+				.orElseThrow(() -> IdentityException.notFound("No hay un plan que cancelar."));
+		if (!current.active(Instant.now())) {
+			throw IdentityException.validation("PLAN_INACTIVE", "El plan ya no está activo.");
+		}
+		if ("cancelled".equals(current.status())) {
+			return current;
+		}
+		OrganizationPlan next = new OrganizationPlan(
+				current.organizationId(),
+				current.entitlement(),
+				"cancelled",
+				current.periodEndsAt(),
+				current.storeProductId(),
+				current.lastEventId());
+		plans.upsert(next);
+		log.info("Plan cancelled from client org={}", organizationId);
+		return next;
+	}
+
+	public OrganizationPlan reactivateFromClient(UUID organizationId) {
+		OrganizationPlan current = plans.find(organizationId)
+				.orElseThrow(() -> IdentityException.notFound("No hay un plan que reactivar."));
+		if (!current.active(Instant.now())) {
+			throw IdentityException.planRequired();
+		}
+		if (!"cancelled".equals(current.status())) {
+			return current;
+		}
+		OrganizationPlan next = new OrganizationPlan(
+				current.organizationId(),
+				current.entitlement(),
+				"active",
+				current.periodEndsAt(),
+				current.storeProductId(),
+				current.lastEventId());
+		plans.upsert(next);
+		log.info("Plan reactivated from client org={}", organizationId);
+		return next;
+	}
+
 	public void applyRevenueCatEvent(JsonNode root) {
 		JsonNode event = root.path("event");
 		if (event.isMissingNode() || event.isNull()) {

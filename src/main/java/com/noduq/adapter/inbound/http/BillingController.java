@@ -38,6 +38,20 @@ public class BillingController {
 				plans.activateFromClient(workspace.organization().id(), "noduq_sms"));
 	}
 
+	@PostMapping("/cancel")
+	IdentityResponses.PlanResponse cancel(Authentication authentication) {
+		OwnerWorkspace workspace = owners.requireWorkspace(OwnerAuth.userId(authentication));
+		workspace.requireOwner();
+		return IdentityResponses.PlanResponse.from(plans.cancelFromClient(workspace.organization().id()));
+	}
+
+	@PostMapping("/reactivate")
+	IdentityResponses.PlanResponse reactivate(Authentication authentication) {
+		OwnerWorkspace workspace = owners.requireWorkspace(OwnerAuth.userId(authentication));
+		workspace.requireOwner();
+		return IdentityResponses.PlanResponse.from(plans.reactivateFromClient(workspace.organization().id()));
+	}
+
 	@PostMapping("/revenuecat")
 	void revenueCat(
 			@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,

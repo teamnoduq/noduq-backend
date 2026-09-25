@@ -10,11 +10,14 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class OrganizationPlanServiceTest {
@@ -50,5 +53,32 @@ class OrganizationPlanServiceTest {
 		assertEquals("noduq_sms", plan.entitlement());
 		assertEquals("active", plan.status());
 		assertTrue(plan.active(java.time.Instant.now()));
+	}
+
+	@Test
+	void clientCancelKeepsAccessUntilPeriodEnds() {
+		UUID org = UUID.randomUUID();
+		Instant ends = Instant.now().plusSeconds(86_400);
+		when(plans.find(org)).thenReturn(Optional.of(new OrganizationPlan(
+				org, OrganizationPlan.SMS, "active", ends, "noduq_sms_monthly_24900", "evt-1")));
+
+		OrganizationPlan cancelled = service.cancelFromClient(org);
+
+		assertEquals("cancelled", cancelled.status());
+		assertTrue(cancelled.active(Instant.now()));
+		assertEquals(ends, cancelled.periodEndsAt());
+	}
+
+	@Test
+	void clientReactivateRestoresRenewingStatus() {
+		UUID org = UUID.randomUUID();
+		Instant ends = Instant.now().plusSeconds(86_400);
+		when(plans.find(org)).thenReturn(Optional.of(new OrganizationPlan(
+				org, OrganizationPlan.SMS, "cancelled", ends, "noduq_sms_monthly_24900", "evt-1")));
+
+		OrganizationPlan restored = service.reactivateFromClient(org);
+
+		assertEquals("active", restored.status());
+		assertTrue(restored.active(Instant.now()));
 	}
 }
