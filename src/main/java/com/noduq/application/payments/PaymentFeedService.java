@@ -18,7 +18,7 @@ import java.util.UUID;
 public class PaymentFeedService {
 
 	private static final int DEFAULT_LIMIT = 30;
-	private static final int MAX_LIMIT = 100;
+	private static final int MAX_LIMIT = 5000;
 
 	private final OwnerAccountService owners;
 	private final EmployeeRepository employees;
