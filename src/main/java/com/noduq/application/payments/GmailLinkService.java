@@ -169,14 +169,12 @@ public class GmailLinkService {
 		Instant floor = connection.lastPolledAt() == null
 				? Instant.now().minus(Duration.ofHours(36))
 				: connection.lastPolledAt().minus(Duration.ofMinutes(5));
-		OwnerWorkspace workspace = owners.requireWorkspace(connection.profileId());
 		if (!plans.allowsEmail(connection.organizationId())) {
 			return;
 		}
 		for (GmailMailbox.BankMail mail : gmail.recentReceipts(access, floor)) {
 			ingest.ingestEmail(
 					connection.organizationId(),
-					workspace.organization().merchantLast4(),
 					mail.from(),
 					mail.body(),
 					mail.sentAt());

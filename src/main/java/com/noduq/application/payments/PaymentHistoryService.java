@@ -130,7 +130,6 @@ public class PaymentHistoryService {
 				current.windowUntil(),
 				current.pageToken());
 		int stored = current.storedMessages();
-		String last4 = workspace.organization().merchantLast4();
 		Instant liveFrom = liveFloor(connection.lastPolledAt());
 		for (GmailMailbox.BankMail mail : page.receipts()) {
 			// Mail the live poller still owns stays with it, so a payment that lands
@@ -140,7 +139,6 @@ public class PaymentHistoryService {
 			}
 			PaymentIngestService.Ingested ingested = ingest.ingestHistoricalEmail(
 					organizationId,
-					last4,
 					mail.from(),
 					mail.body(),
 					mail.sentAt());

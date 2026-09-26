@@ -68,7 +68,7 @@ class PaymentIngestServiceTest {
 	void storesAndAnnouncesAReceiptFromTheShortCode() {
 		echoInsert();
 
-		PaymentIngestService.Ingested ingested = service.ingestSms(ORGANIZATION, "8186", "85540", RECEIPT, null);
+		PaymentIngestService.Ingested ingested = service.ingestSms(ORGANIZATION, "85540", RECEIPT, null);
 
 		assertEquals(PaymentIngestService.Outcome.STORED, ingested.outcome());
 		assertEquals("JUAN DAVID MARRUGO NARVAEZ", ingested.notice().payerName());
@@ -79,26 +79,9 @@ class PaymentIngestServiceTest {
 	}
 
 	@Test
-	void acceptsTheReceiptWhenTheShopNeverToldUsItsAccountDigits() {
-		echoInsert();
-
-		PaymentIngestService.Ingested ingested = service.ingestSms(ORGANIZATION, null, "85540", RECEIPT, null);
-
-		assertEquals(PaymentIngestService.Outcome.STORED, ingested.outcome());
-	}
-
-	@Test
-	void ignoresAReceiptThatNamesADifferentAccount() {
-		PaymentIngestService.Ingested ingested = service.ingestSms(ORGANIZATION, "9999", "85540", RECEIPT, null);
-
-		assertEquals(PaymentIngestService.Outcome.IGNORED_OTHER_ACCOUNT, ingested.outcome());
-		verifyNoInteractions(notices, notifier);
-	}
-
-	@Test
 	void ignoresTheAlertShortCodeThatIsNotAReceipt() {
 		PaymentIngestService.Ingested ingested = service.ingestSms(
-				ORGANIZATION, "8186", "891333", "Bancolombia: responde SI o NO a esta compra", null);
+				ORGANIZATION, "891333", "Bancolombia: responde SI o NO a esta compra", null);
 
 		assertEquals(PaymentIngestService.Outcome.IGNORED_SENDER, ingested.outcome());
 		verifyNoInteractions(notices, notifier);
@@ -107,7 +90,7 @@ class PaymentIngestServiceTest {
 	@Test
 	void ignoresAStrangerTexting() {
 		PaymentIngestService.Ingested ingested = service.ingestSms(
-				ORGANIZATION, "8186", "3001234567", RECEIPT, null);
+				ORGANIZATION, "3001234567", RECEIPT, null);
 
 		assertEquals(PaymentIngestService.Outcome.IGNORED_SENDER, ingested.outcome());
 		verifyNoInteractions(notices, notifier);
@@ -130,7 +113,7 @@ class PaymentIngestServiceTest {
 		when(notices.insertIfNew(any())).thenReturn(Optional.empty());
 		when(notices.findByFingerprint(any(), any())).thenReturn(Optional.of(existing));
 
-		PaymentIngestService.Ingested ingested = service.ingestSms(ORGANIZATION, "8186", "85540", RECEIPT, null);
+		PaymentIngestService.Ingested ingested = service.ingestSms(ORGANIZATION, "85540", RECEIPT, null);
 
 		assertEquals(PaymentIngestService.Outcome.DUPLICATE, ingested.outcome());
 		assertEquals(existing, ingested.notice());
@@ -141,8 +124,8 @@ class PaymentIngestServiceTest {
 	void keepsTheSameFingerprintForTheSameMessageSoRepeatsCanBeSpotted() {
 		echoInsert();
 
-		service.ingestSms(ORGANIZATION, "8186", "85540", RECEIPT, null);
-		service.ingestSms(ORGANIZATION, "8186", "85540", "  " + RECEIPT + "  ", null);
+		service.ingestSms(ORGANIZATION, "85540", RECEIPT, null);
+		service.ingestSms(ORGANIZATION, "85540", "  " + RECEIPT + "  ", null);
 
 		ArgumentCaptor<PaymentNotice> drafts = ArgumentCaptor.forClass(PaymentNotice.class);
 		verify(notices, org.mockito.Mockito.times(2)).insertIfNew(drafts.capture());
@@ -156,7 +139,7 @@ class PaymentIngestServiceTest {
 		echoInsert();
 
 		PaymentIngestService.Ingested ingested = service.ingestSms(
-				ORGANIZATION, "8186", "85540", "Bancolombia informa una novedad en tu producto", null);
+				ORGANIZATION, "85540", "Bancolombia informa una novedad en tu producto", null);
 
 		assertEquals(PaymentIngestService.Outcome.STORED, ingested.outcome());
 		assertFalse(ingested.notice().readable());
@@ -168,7 +151,7 @@ class PaymentIngestServiceTest {
 	void doesNotKeepTheRawMessageWhenItCouldBeRead() {
 		echoInsert();
 
-		PaymentIngestService.Ingested ingested = service.ingestSms(ORGANIZATION, "8186", "85540", RECEIPT, null);
+		PaymentIngestService.Ingested ingested = service.ingestSms(ORGANIZATION, "85540", RECEIPT, null);
 
 		assertTrue(ingested.notice().readable());
 		assertEquals(null, ingested.notice().unparsedExcerpt());
@@ -176,7 +159,7 @@ class PaymentIngestServiceTest {
 
 	@Test
 	void refusesAnEmptyMessage() {
-		assertThrows(IdentityException.class, () -> service.ingestSms(ORGANIZATION, "8186", "85540", "   ", null));
+		assertThrows(IdentityException.class, () -> service.ingestSms(ORGANIZATION, "85540", "   ", null));
 	}
 
 	@Test
@@ -185,7 +168,7 @@ class PaymentIngestServiceTest {
 
 		assertThrows(
 				IdentityException.class,
-				() -> service.ingestSms(ORGANIZATION, "8186", "85540", tooLong, null));
+				() -> service.ingestSms(ORGANIZATION, "85540", tooLong, null));
 	}
 
 	@Test
@@ -195,7 +178,6 @@ class PaymentIngestServiceTest {
 
 		PaymentIngestService.Ingested ingested = service.ingestEmail(
 				ORGANIZATION,
-				"8186",
 				"alertasynotificaciones@ayn.notificacionesbancolombia.com",
 				RECEIPT,
 				null);
@@ -228,7 +210,6 @@ class PaymentIngestServiceTest {
 
 		PaymentIngestService.Ingested ingested = service.ingestEmail(
 				ORGANIZATION,
-				"8186",
 				"Alertas y Notificaciones <alertasynotificaciones@ayn.notificacionesbancolombia.com>",
 				RECEIPT,
 				null);
@@ -242,7 +223,6 @@ class PaymentIngestServiceTest {
 	void ignoresTheSecurityMailbox() {
 		PaymentIngestService.Ingested ingested = service.ingestEmail(
 				ORGANIZATION,
-				"8186",
 				"validaciondeseguridad@notificacionesbancolombia.com",
 				RECEIPT,
 				null);
@@ -255,7 +235,6 @@ class PaymentIngestServiceTest {
 	void ignoresMailThatNeverMentionsTheQr() {
 		PaymentIngestService.Ingested ingested = service.ingestEmail(
 				ORGANIZATION,
-				"8186",
 				"alertasynotificaciones@ayn.notificacionesbancolombia.com",
 				"Bancolombia: extracto de tu cuenta *8186",
 				null);
@@ -268,7 +247,7 @@ class PaymentIngestServiceTest {
 	void hashesSmsAndEmailTheSameSoTheSecondCopyIsAConfirmation() {
 		echoInsert();
 
-		PaymentNotice sms = service.ingestSms(ORGANIZATION, "8186", "85540", RECEIPT, null).notice();
+		PaymentNotice sms = service.ingestSms(ORGANIZATION, "85540", RECEIPT, null).notice();
 		assertEquals(sms.fingerprint(), com.noduq.domain.payments.PaymentFingerprint.of(RECEIPT, sms.receivedAt()));
 	}
 

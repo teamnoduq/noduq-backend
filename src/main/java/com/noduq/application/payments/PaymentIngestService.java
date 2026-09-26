@@ -44,7 +44,6 @@ public class PaymentIngestService {
 		DUPLICATE,
 		CONFIRMED,
 		IGNORED_SENDER,
-		IGNORED_OTHER_ACCOUNT,
 		IGNORED_NOT_QR,
 		IGNORED_NO_PLAN
 	}
@@ -77,40 +76,31 @@ public class PaymentIngestService {
 		if (!plans.allowsSms(workspace.organization().id())) {
 			return new Ingested(Outcome.IGNORED_NO_PLAN, null);
 		}
-		return ingestSms(
-				workspace.organization().id(),
-				workspace.organization().merchantLast4(),
-				sender,
-				body,
-				sentAt,
-				true);
+		return ingestSms(workspace.organization().id(), sender, body, sentAt, true);
 	}
 
 	/** A receipt from the phone's old inbox. The counter is not rung; the date on the message is kept. */
 	public Ingested ingestHistoricalSms(
 			UUID organizationId,
-			String merchantLast4,
 			String sender,
 			String body,
 			Instant sentAt) {
 		if (!historicalMoment(sentAt)) {
 			return new Ingested(Outcome.IGNORED_SENDER, null);
 		}
-		return ingestSms(organizationId, merchantLast4, sender, body, sentAt, false);
+		return ingestSms(organizationId, sender, body, sentAt, false);
 	}
 
 	public Ingested ingestSms(
 			UUID organizationId,
-			String merchantLast4,
 			String sender,
 			String body,
 			Instant sentAt) {
-		return ingestSms(organizationId, merchantLast4, sender, body, sentAt, true);
+		return ingestSms(organizationId, sender, body, sentAt, true);
 	}
 
 	private Ingested ingestSms(
 			UUID organizationId,
-			String merchantLast4,
 			String sender,
 			String body,
 			Instant sentAt,
@@ -123,14 +113,6 @@ public class PaymentIngestService {
 					sender,
 					senders.isKnownSms(sender));
 			return new Ingested(Outcome.IGNORED_SENDER, null);
-		}
-
-		// The message names the account it landed in. When the shop told us its four digits we
-		// can tell its payments apart from anything else arriving at the same phone.
-		String account = SmsPaymentParser.accountLast4(text);
-		if (merchantLast4 != null && account != null && !merchantLast4.equals(account)) {
-			log.info("SMS ignored org={}: it names another account", organizationId);
-			return new Ingested(Outcome.IGNORED_OTHER_ACCOUNT, null);
 		}
 
 		Instant receivedAt = announce ? receivedAt(sentAt) : sentAt;
@@ -178,39 +160,31 @@ public class PaymentIngestService {
 	public Ingested ingestOwnerEmail(UUID profileId, String from, String body, Instant sentAt) {
 		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
 		workspace.requireOwner();
-		return ingestEmail(
-				workspace.organization().id(),
-				workspace.organization().merchantLast4(),
-				from,
-				body,
-				sentAt);
+		return ingestEmail(workspace.organization().id(), from, body, sentAt, true);
 	}
 
 	public Ingested ingestEmail(
 			UUID organizationId,
-			String merchantLast4,
 			String from,
 			String body,
 			Instant sentAt) {
-		return ingestEmail(organizationId, merchantLast4, from, body, sentAt, true);
+		return ingestEmail(organizationId, from, body, sentAt, true);
 	}
 
 	/** An old bank email. The date on the message is kept and the counter is not rung. */
 	public Ingested ingestHistoricalEmail(
 			UUID organizationId,
-			String merchantLast4,
 			String from,
 			String body,
 			Instant sentAt) {
 		if (!historicalMoment(sentAt)) {
 			return new Ingested(Outcome.IGNORED_SENDER, null);
 		}
-		return ingestEmail(organizationId, merchantLast4, from, body, sentAt, false);
+		return ingestEmail(organizationId, from, body, sentAt, false);
 	}
 
 	private Ingested ingestEmail(
 			UUID organizationId,
-			String merchantLast4,
 			String from,
 			String body,
 			Instant sentAt,
@@ -227,12 +201,6 @@ public class PaymentIngestService {
 				log.info("Email ignored org={}: body does not mention the QR", organizationId);
 			}
 			return new Ingested(Outcome.IGNORED_NOT_QR, null);
-		}
-
-		String account = SmsPaymentParser.accountLast4(text);
-		if (merchantLast4 != null && account != null && !merchantLast4.equals(account)) {
-			log.info("Email ignored org={}: it names another account", organizationId);
-			return new Ingested(Outcome.IGNORED_OTHER_ACCOUNT, null);
 		}
 
 		Instant receivedAt = announce ? receivedAt(sentAt) : sentAt;
