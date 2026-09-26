@@ -10,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -30,7 +31,13 @@ public class GmailMailbox {
 	private static final String TOKEN = "https://oauth2.googleapis.com/token";
 	private static final String GMAIL = "https://gmail.googleapis.com/gmail/v1/users/me";
 	private static final String SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
-	private static final String QUERY = "from:notificacionesbancolombia.com newer_than:2d";
+	/** The three mailboxes the bank actually sends QR receipts from, including the subdomain it switched to. */
+	private static final String BANK_FROM = "("
+			+ "from:alertasynotificaciones@notificacionesbancolombia.com"
+			+ " OR from:alertasynotificaciones@an.notificacionesbancolombia.com"
+			+ " OR from:alertasynotificaciones@ayn.notificacionesbancolombia.com"
+			+ ")";
+	private static final String QUERY = BANK_FROM + " newer_than:2d";
 
 	private final RestClient http;
 	private final ObjectMapper json;
@@ -87,15 +94,8 @@ public class GmailMailbox {
 	 * including ones outside the exact instants. {@code nextPageToken} is null on the last page.
 	 */
 	public MailPage pageReceipts(String accessToken, Instant from, Instant until, String pageToken) {
-		String query = "from:notificacionesbancolombia.com after:"
-				+ gmailDay(from, -1)
-				+ " before:"
-				+ gmailDay(until, 1);
-		String uri = GMAIL + "/messages?q=" + url(query) + "&maxResults=20";
-		if (pageToken != null && !pageToken.isBlank()) {
-			uri += "&pageToken=" + url(pageToken);
-		}
-		JsonNode list = get(accessToken, uri);
+		String query = BANK_FROM + " after:" + gmailDay(from, -1) + " before:" + gmailDay(until, 1);
+		JsonNode list = listMessages(accessToken, query, pageToken);
 		JsonNode messages = list.path("messages");
 		List<BankMail> receipts = new ArrayList<>();
 		int listed = 0;
@@ -116,7 +116,9 @@ public class GmailMailbox {
 				}
 			}
 		}
-		return new MailPage(receipts, text(list, "nextPageToken"), list.path("resultSizeEstimate").asInt(0), listed);
+		int estimate = list.path("resultSizeEstimate").asInt(0);
+		log.info("Gmail history page listed={} estimate={} more={}", listed, estimate, list.hasNonNull("nextPageToken"));
+		return new MailPage(receipts, text(list, "nextPageToken"), estimate, listed);
 	}
 
 	private static String gmailDay(Instant instant, int plusDays) {
@@ -127,7 +129,7 @@ public class GmailMailbox {
 	}
 
 	public List<BankMail> recentReceipts(String accessToken, Instant notBefore) {
-		JsonNode list = get(accessToken, GMAIL + "/messages?q=" + url(QUERY) + "&maxResults=20");
+		JsonNode list = listMessages(accessToken, QUERY, null);
 		JsonNode messages = list.path("messages");
 		List<BankMail> receipts = new ArrayList<>();
 		if (!messages.isArray()) {
@@ -186,9 +188,19 @@ public class GmailMailbox {
 		return parse(raw);
 	}
 
+	private JsonNode listMessages(String accessToken, String query, String pageToken) {
+		UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(GMAIL + "/messages")
+				.queryParam("q", query)
+				.queryParam("maxResults", 20);
+		if (pageToken != null && !pageToken.isBlank()) {
+			builder.queryParam("pageToken", pageToken);
+		}
+		return get(accessToken, builder.build().encode().toUri().toString());
+	}
+
 	private JsonNode get(String accessToken, String uri) {
 		String raw = http.get()
-				.uri(uri)
+				.uri(java.net.URI.create(uri))
 				.header("Authorization", "Bearer " + accessToken)
 				.retrieve()
 				.body(String.class);

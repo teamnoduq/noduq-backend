@@ -86,11 +86,12 @@ public class PaymentController {
 			int total,
 			int processed,
 			int stored,
-			int percent) {
+			int percent,
+			Instant finishedAt) {
 
 		static HistoryResponse from(PaymentHistoryImport row) {
 			if (row == null) {
-				return new HistoryResponse("available", null, null, 0, 0, 0, 0);
+				return new HistoryResponse("available", null, null, 0, 0, 0, 0, null);
 			}
 			return new HistoryResponse(
 					row.status(),
@@ -99,7 +100,8 @@ public class PaymentController {
 					row.totalMessages(),
 					row.processedMessages(),
 					row.storedMessages(),
-					row.percent());
+					row.percent(),
+					row.finishedAt());
 		}
 	}
 }
