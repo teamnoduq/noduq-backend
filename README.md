@@ -47,7 +47,7 @@ En Windows: `mvnw.cmd`. Maven usa `JAVA_HOME`; este proyecto pide JDK 21.
 | GET | `/v1/payments/history` | dueño (`available`, `deferred`, `running`, `done`) |
 | POST | `/v1/payments/history/start` | dueño, una vez; sigue si ya iba |
 | POST | `/v1/payments/history/defer` | dueño, esconder el aviso en Pagos |
-| POST | `/v1/payments/history/batches` | dueño, la siguiente página del correo |
+| POST | `/v1/payments/history/batches` | dueño, lista el correo y luego guarda, sin avisar |
 | GET | `/v1/employee/payments` | empleado (recortado por lookback) |
 | GET | `/v1/gmail` · `/v1/gmail/connect` | dueño (`returnTo=web` vuelve al panel) |
 | GET | `/v1/gmail/callback` | Google, público |

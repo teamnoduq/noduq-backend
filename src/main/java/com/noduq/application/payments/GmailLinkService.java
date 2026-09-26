@@ -6,8 +6,10 @@ import com.noduq.application.identity.OwnerAccountService;
 import com.noduq.domain.identity.IdentityException;
 import com.noduq.domain.identity.OwnerWorkspace;
 import com.noduq.domain.payments.GmailConnection;
+import com.noduq.domain.payments.PaymentHistoryImport;
 import com.noduq.domain.payments.PendingGmail;
 import com.noduq.domain.payments.port.GmailConnectionRepository;
+import com.noduq.domain.payments.port.PaymentHistoryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,6 +33,7 @@ public class GmailLinkService {
 
 	private final OwnerAccountService owners;
 	private final GmailConnectionRepository connections;
+	private final PaymentHistoryRepository history;
 	private final GmailMailbox gmail;
 	private final PaymentIngestService ingest;
 	private final OrganizationPlanService plans;
@@ -41,6 +44,7 @@ public class GmailLinkService {
 	public GmailLinkService(
 			OwnerAccountService owners,
 			GmailConnectionRepository connections,
+			PaymentHistoryRepository history,
 			GmailMailbox gmail,
 			PaymentIngestService ingest,
 			OrganizationPlanService plans,
@@ -49,6 +53,7 @@ public class GmailLinkService {
 			@Value("${noduq.gmail.web-redirect:https://noduq.app/cuenta}") String webRedirect) {
 		this.owners = owners;
 		this.connections = connections;
+		this.history = history;
 		this.gmail = gmail;
 		this.ingest = ingest;
 		this.plans = plans;
@@ -169,6 +174,14 @@ public class GmailLinkService {
 		Instant floor = connection.lastPolledAt() == null
 				? Instant.now().minus(Duration.ofHours(36))
 				: connection.lastPolledAt().minus(Duration.ofMinutes(5));
+		// While the history import is walking the mailbox, mail from before it started
+		// belongs to that import and must not ring the counter.
+		PaymentHistoryImport job = history.find(connection.organizationId()).orElse(null);
+		if (job != null
+				&& PaymentHistoryImport.RUNNING.equals(job.status())
+				&& floor.isBefore(job.windowUntil())) {
+			floor = job.windowUntil();
+		}
 		if (!plans.allowsEmail(connection.organizationId())) {
 			return;
 		}

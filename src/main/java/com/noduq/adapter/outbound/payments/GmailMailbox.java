@@ -14,6 +14,8 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -32,11 +34,14 @@ public class GmailMailbox {
 	private static final String GMAIL = "https://gmail.googleapis.com/gmail/v1/users/me";
 	private static final String SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 	/** The three mailboxes the bank actually sends QR receipts from, including the subdomain it switched to. */
+	public static final List<String> BANK_SENDERS = List.of(
+			"alertasynotificaciones@notificacionesbancolombia.com",
+			"alertasynotificaciones@an.notificacionesbancolombia.com",
+			"alertasynotificaciones@ayn.notificacionesbancolombia.com");
 	private static final String BANK_FROM = "("
-			+ "from:alertasynotificaciones@notificacionesbancolombia.com"
-			+ " OR from:alertasynotificaciones@an.notificacionesbancolombia.com"
-			+ " OR from:alertasynotificaciones@ayn.notificacionesbancolombia.com"
+			+ BANK_SENDERS.stream().map(address -> "from:" + address).reduce((left, right) -> left + " OR " + right).orElse("")
 			+ ")";
+	private static final DateTimeFormatter GMAIL_DAY = DateTimeFormatter.ofPattern("yyyy/MM/dd");
 	private static final String QUERY = BANK_FROM + " newer_than:2d";
 
 	private final RestClient http;
@@ -95,7 +100,7 @@ public class GmailMailbox {
 	 */
 	public MailPage pageReceipts(String accessToken, Instant from, Instant until, String pageToken) {
 		String query = BANK_FROM + " after:" + gmailDay(from, -1) + " before:" + gmailDay(until, 1);
-		JsonNode list = listMessages(accessToken, query, pageToken);
+		JsonNode list = listMessages(accessToken, query, pageToken, 20);
 		JsonNode messages = list.path("messages");
 		List<BankMail> receipts = new ArrayList<>();
 		int listed = 0;
@@ -121,6 +126,44 @@ public class GmailMailbox {
 		return new MailPage(receipts, text(list, "nextPageToken"), estimate, listed);
 	}
 
+	/**
+	 * Ids only, one sender and one date span. A huge OR across the whole year makes Gmail
+	 * stop early and invent a total; a narrow query pages through to the end.
+	 */
+	public IdPage listIds(
+			String accessToken,
+			String fromAddress,
+			LocalDate afterDay,
+			LocalDate beforeDay,
+			String pageToken) {
+		String query = "from:" + fromAddress
+				+ " after:" + afterDay.format(GMAIL_DAY)
+				+ " before:" + beforeDay.format(GMAIL_DAY);
+		JsonNode list = listMessages(accessToken, query, pageToken, 100);
+		JsonNode messages = list.path("messages");
+		List<String> ids = new ArrayList<>();
+		if (messages.isArray()) {
+			for (JsonNode message : messages) {
+				String id = text(message, "id");
+				if (id != null) {
+					ids.add(id);
+				}
+			}
+		}
+		log.info(
+				"Gmail history ids listed={} more={} from={} after={} before={}",
+				ids.size(),
+				list.hasNonNull("nextPageToken"),
+				fromAddress,
+				afterDay,
+				beforeDay);
+		return new IdPage(ids, text(list, "nextPageToken"));
+	}
+
+	public BankMail readMail(String accessToken, String id) {
+		return read(accessToken, id);
+	}
+
 	private static String gmailDay(Instant instant, int plusDays) {
 		return instant.atZone(java.time.ZoneId.of("America/Bogota"))
 				.toLocalDate()
@@ -129,7 +172,7 @@ public class GmailMailbox {
 	}
 
 	public List<BankMail> recentReceipts(String accessToken, Instant notBefore) {
-		JsonNode list = listMessages(accessToken, QUERY, null);
+		JsonNode list = listMessages(accessToken, QUERY, null, 20);
 		JsonNode messages = list.path("messages");
 		List<BankMail> receipts = new ArrayList<>();
 		if (!messages.isArray()) {
@@ -188,10 +231,10 @@ public class GmailMailbox {
 		return parse(raw);
 	}
 
-	private JsonNode listMessages(String accessToken, String query, String pageToken) {
+	private JsonNode listMessages(String accessToken, String query, String pageToken, int maxResults) {
 		UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(GMAIL + "/messages")
 				.queryParam("q", query)
-				.queryParam("maxResults", 20);
+				.queryParam("maxResults", maxResults);
 		if (pageToken != null && !pageToken.isBlank()) {
 			builder.queryParam("pageToken", pageToken);
 		}
@@ -282,5 +325,8 @@ public class GmailMailbox {
 	}
 
 	public record MailPage(List<BankMail> receipts, String nextPageToken, int estimate, int listed) {
+	}
+
+	public record IdPage(List<String> ids, String nextPageToken) {
 	}
 }

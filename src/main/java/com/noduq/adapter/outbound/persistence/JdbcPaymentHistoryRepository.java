@@ -5,10 +5,14 @@ import com.noduq.domain.payments.port.PaymentHistoryRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import org.springframework.jdbc.core.BatchPreparedStatementSetter;
+
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -66,6 +70,69 @@ public class JdbcPaymentHistoryRepository implements PaymentHistoryRepository {
 				row.pageToken(),
 				row.startedAt() == null ? null : Timestamp.from(row.startedAt()),
 				row.finishedAt() == null ? null : Timestamp.from(row.finishedAt()));
+	}
+
+	@Override
+	public void rememberMessages(UUID organizationId, List<String> gmailIds) {
+		if (gmailIds.isEmpty()) {
+			return;
+		}
+		jdbc.batchUpdate(
+				"""
+						insert into payment_history_messages (organization_id, gmail_id)
+						values (?, ?)
+						on conflict (organization_id, gmail_id) do nothing
+						""",
+				new BatchPreparedStatementSetter() {
+					@Override
+					public void setValues(PreparedStatement statement, int index) throws SQLException {
+						statement.setObject(1, organizationId);
+						statement.setString(2, gmailIds.get(index));
+					}
+
+					@Override
+					public int getBatchSize() {
+						return gmailIds.size();
+					}
+				});
+	}
+
+	@Override
+	public int countMessages(UUID organizationId) {
+		Integer count = jdbc.queryForObject(
+				"select count(*) from payment_history_messages where organization_id = ?",
+				Integer.class,
+				organizationId);
+		return count == null ? 0 : count;
+	}
+
+	@Override
+	public List<String> nextMessages(UUID organizationId, int limit) {
+		return jdbc.query(
+				"""
+						select gmail_id from payment_history_messages
+						where organization_id = ?
+						order by gmail_id
+						limit ?
+						""",
+				(rs, rowNum) -> rs.getString("gmail_id"),
+				organizationId,
+				limit);
+	}
+
+	@Override
+	public void forgetMessages(UUID organizationId, List<String> gmailIds) {
+		for (String gmailId : gmailIds) {
+			jdbc.update(
+					"delete from payment_history_messages where organization_id = ? and gmail_id = ?",
+					organizationId,
+					gmailId);
+		}
+	}
+
+	@Override
+	public void clearMessages(UUID organizationId) {
+		jdbc.update("delete from payment_history_messages where organization_id = ?", organizationId);
 	}
 
 	private static PaymentHistoryImport row(ResultSet rs) throws SQLException {

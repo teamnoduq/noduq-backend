@@ -83,3 +83,12 @@ create table public.payment_history_imports (
 );
 
 alter table public.payment_history_imports enable row level security;
+
+-- Ids found while listing the mailbox. The save step drains this queue.
+create table public.payment_history_messages (
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  gmail_id text not null,
+  primary key (organization_id, gmail_id)
+);
+
+alter table public.payment_history_messages enable row level security;
