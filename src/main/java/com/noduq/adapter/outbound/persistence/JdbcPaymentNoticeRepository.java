@@ -2,10 +2,12 @@ package com.noduq.adapter.outbound.persistence;
 
 import com.noduq.domain.payments.PaymentNotice;
 import com.noduq.domain.payments.PaymentSource;
+import com.noduq.domain.payments.PaymentTally;
 import com.noduq.domain.payments.port.PaymentNoticeRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -21,6 +23,14 @@ public class JdbcPaymentNoticeRepository implements PaymentNoticeRepository {
 	private static final String COLUMNS = """
 			id, organization_id, source, payer_name, amount, currency,
 			occurred_at, received_at, fingerprint, email_confirmed_at, unparsed_excerpt
+			""";
+
+	private static final String FILTER = """
+			where organization_id = ?
+			  and (?::timestamptz is null or coalesce(occurred_at, received_at) >= ?)
+			  and (?::timestamptz is null or coalesce(occurred_at, received_at) < ?)
+			  and (?::text is null or lower(coalesce(payer_name, '')) like ?)
+			  and (?::text is null or source = ?)
 			""";
 
 	private final JdbcTemplate jdbc;
@@ -73,31 +83,80 @@ public class JdbcPaymentNoticeRepository implements PaymentNoticeRepository {
 			Instant since,
 			Instant until,
 			String query,
-			String source) {
-		String trimmedQuery = query == null || query.isBlank() ? null : "%" + query.trim().toLowerCase() + "%";
-		String sourceFilter = source == null || source.isBlank() ? null : source.trim().toLowerCase();
+			String source,
+			Instant before,
+			UUID beforeId) {
+		String trimmedQuery = like(query);
+		String sourceFilter = sourceFilter(source);
+		Timestamp sinceAt = stamp(since);
+		Timestamp untilAt = stamp(until);
+		Timestamp beforeAt = stamp(before);
 		return jdbc.query(
 				"select " + COLUMNS + """
 						from payment_notices
-						where organization_id = ?
-						  and (?::timestamptz is null or coalesce(occurred_at, received_at) >= ?)
-						  and (?::timestamptz is null or coalesce(occurred_at, received_at) < ?)
-						  and (?::text is null or lower(coalesce(payer_name, '')) like ?)
-						  and (?::text is null or source = ?)
-						order by received_at desc
+						""" + FILTER + """
+						  and (
+						    ?::timestamptz is null
+						    or coalesce(occurred_at, received_at) < ?
+						    or (coalesce(occurred_at, received_at) = ? and id < ?)
+						  )
+						order by coalesce(occurred_at, received_at) desc, id desc
 						limit ?
 						""",
 				this::notice,
 				organizationId,
-				since == null ? null : Timestamp.from(since),
-				since == null ? null : Timestamp.from(since),
-				until == null ? null : Timestamp.from(until),
-				until == null ? null : Timestamp.from(until),
+				sinceAt,
+				sinceAt,
+				untilAt,
+				untilAt,
 				trimmedQuery,
 				trimmedQuery,
 				sourceFilter,
 				sourceFilter,
+				beforeAt,
+				beforeAt,
+				beforeAt,
+				beforeId,
 				limit);
+	}
+
+	@Override
+	public PaymentTally tally(
+			UUID organizationId,
+			Instant since,
+			Instant until,
+			String query,
+			String source) {
+		Timestamp sinceAt = stamp(since);
+		Timestamp untilAt = stamp(until);
+		PaymentTally row = jdbc.queryForObject(
+				"select count(*)::bigint, coalesce(sum(amount), 0) from payment_notices " + FILTER,
+				(rs, ignored) -> new PaymentTally(rs.getLong(1), rs.getBigDecimal(2)),
+				organizationId,
+				sinceAt,
+				sinceAt,
+				untilAt,
+				untilAt,
+				like(query),
+				like(query),
+				sourceFilter(source),
+				sourceFilter(source));
+		if (row == null || row.totalAmount() == null) {
+			return new PaymentTally(0, BigDecimal.ZERO);
+		}
+		return row;
+	}
+
+	private static Timestamp stamp(Instant instant) {
+		return instant == null ? null : Timestamp.from(instant);
+	}
+
+	private static String like(String query) {
+		return query == null || query.isBlank() ? null : "%" + query.trim().toLowerCase() + "%";
+	}
+
+	private static String sourceFilter(String source) {
+		return source == null || source.isBlank() ? null : source.trim().toLowerCase();
 	}
 
 	@Override

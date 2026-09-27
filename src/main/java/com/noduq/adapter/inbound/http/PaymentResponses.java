@@ -41,10 +41,16 @@ public final class PaymentResponses {
 		}
 	}
 
-	public record PaymentFeedResponse(List<PaymentNoticeResponse> notices) {
+	public record PaymentFeedResponse(
+			List<PaymentNoticeResponse> notices,
+			long count,
+			BigDecimal totalAmount) {
 
-		static PaymentFeedResponse from(List<PaymentNotice> notices) {
-			return new PaymentFeedResponse(notices.stream().map(PaymentNoticeResponse::from).toList());
+		static PaymentFeedResponse from(com.noduq.application.payments.PaymentFeedService.Page page) {
+			return new PaymentFeedResponse(
+					page.notices().stream().map(PaymentNoticeResponse::from).toList(),
+					page.count(),
+					page.totalAmount());
 		}
 	}
 

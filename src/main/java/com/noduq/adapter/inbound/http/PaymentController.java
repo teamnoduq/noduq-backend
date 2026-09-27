@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.util.Locale;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/v1/payments")
@@ -38,9 +39,19 @@ public class PaymentController {
 			@RequestParam(required = false) Instant since,
 			@RequestParam(required = false) Instant until,
 			@RequestParam(required = false) String q,
-			@RequestParam(required = false) String source) {
+			@RequestParam(required = false) String source,
+			@RequestParam(required = false) Instant before,
+			@RequestParam(required = false) UUID beforeId) {
 		return PaymentResponses.PaymentFeedResponse.from(
-				feed.forOwner(OwnerAuth.userId(authentication), limit, since, until, q, source));
+				feed.forOwner(
+						OwnerAuth.userId(authentication),
+						limit,
+						since,
+						until,
+						q,
+						source,
+						before,
+						beforeId));
 	}
 
 	/** The owner's phone forwards what the bank sent it; this decides whether it counts. */

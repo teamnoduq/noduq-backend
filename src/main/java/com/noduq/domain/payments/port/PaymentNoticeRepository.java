@@ -1,7 +1,9 @@
 package com.noduq.domain.payments.port;
 
 import com.noduq.domain.payments.PaymentNotice;
+import com.noduq.domain.payments.PaymentTally;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -17,11 +19,24 @@ public interface PaymentNoticeRepository {
 
 	List<PaymentNotice> latest(UUID organizationId, int limit);
 
+	/**
+	 * Newest first. {@code before} and {@code beforeId} are the last row already shown, so the
+	 * next page continues without loading the whole filter.
+	 */
 	List<PaymentNotice> search(
 			UUID organizationId,
 			int limit,
-			java.time.Instant since,
-			java.time.Instant until,
+			Instant since,
+			Instant until,
+			String query,
+			String source,
+			Instant before,
+			UUID beforeId);
+
+	PaymentTally tally(
+			UUID organizationId,
+			Instant since,
+			Instant until,
 			String query,
 			String source);
 

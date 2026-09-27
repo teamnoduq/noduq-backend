@@ -1,6 +1,7 @@
 package com.noduq.application.payments;
 
 import com.noduq.adapter.outbound.payments.GmailMailbox;
+import com.noduq.adapter.outbound.payments.GmailQuotaException;
 import com.noduq.application.identity.OrganizationPlanService;
 import com.noduq.application.identity.OwnerAccountService;
 import com.noduq.domain.identity.IdentityException;
@@ -19,6 +20,7 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,8 +35,12 @@ public class PaymentHistoryService {
 	private static final String SAVE = "S";
 	private static final String SEP = "\u001f";
 	private static final int SAVE_BATCH = 5;
-	/** How many messages the server opens on each step, without a phone in the loop. */
-	private static final int SERVER_SAVE_BATCH = 20;
+	/**
+	 * Opens stay under Gmail's 6,000 units per minute. Each read costs several units, so a
+	 * steady gap beats a burst: a bigger mailbox just takes longer, and a 403 keeps the id.
+	 */
+	private static final int SERVER_SAVE_BATCH = 12;
+	private static final Duration READ_GAP = Duration.ofMillis(280);
 
 	private final OwnerAccountService owners;
 	private final OrganizationPlanService plans;
@@ -264,27 +270,44 @@ public class PaymentHistoryService {
 			return done;
 		}
 		int stored = current.storedMessages();
+		List<String> opened = new ArrayList<>();
 		for (String id : ids) {
+			if (!pause(READ_GAP)) {
+				break;
+			}
 			try {
 				GmailMailbox.BankMail mail = gmail.readMail(access, id);
-				if (mail == null
-						|| mail.sentAt().isBefore(current.windowFrom())
-						|| mail.sentAt().isAfter(current.windowUntil())) {
-					continue;
+				if (mail != null
+						&& !mail.sentAt().isBefore(current.windowFrom())
+						&& !mail.sentAt().isAfter(current.windowUntil())) {
+					PaymentIngestService.Ingested ingested = ingest.ingestHistoricalEmail(
+							organizationId,
+							mail.from(),
+							mail.body(),
+							mail.sentAt());
+					if (ingested.outcome() == PaymentIngestService.Outcome.STORED) {
+						stored++;
+					}
 				}
-				PaymentIngestService.Ingested ingested = ingest.ingestHistoricalEmail(
-						organizationId,
-						mail.from(),
-						mail.body(),
-						mail.sentAt());
-				if (ingested.outcome() == PaymentIngestService.Outcome.STORED) {
-					stored++;
-				}
+				opened.add(id);
+			} catch (GmailQuotaException ex) {
+				log.warn("Gmail quota reached; message {} stays queued", id);
+				history.forgetMessages(organizationId, opened);
+				pause(quotaCooldown(System.currentTimeMillis()));
+				return rememberProgress(organizationId, current, stored);
 			} catch (RuntimeException ex) {
 				log.warn("Could not store historical message {}: {}", id, ex.toString());
+				opened.add(id);
 			}
 		}
-		history.forgetMessages(organizationId, ids);
+		history.forgetMessages(organizationId, opened);
+		return rememberProgress(organizationId, current, stored);
+	}
+
+	private PaymentHistoryImport rememberProgress(
+			java.util.UUID organizationId,
+			PaymentHistoryImport current,
+			int stored) {
 		int remaining = history.countMessages(organizationId);
 		int processed = current.totalMessages() - remaining;
 		if (remaining == 0) {
@@ -295,6 +318,22 @@ public class PaymentHistoryService {
 		PaymentHistoryImport next = running(current, current.totalMessages(), processed, stored, SAVE);
 		history.save(next);
 		return next;
+	}
+
+	/** Wait out the rest of this minute, plus a little, so the next read starts on a fresh window. */
+	static Duration quotaCooldown(long epochMillis) {
+		long intoMinute = Math.floorMod(epochMillis, 60_000L);
+		return Duration.ofMillis(60_000L - intoMinute + 1_500L);
+	}
+
+	private static boolean pause(Duration wait) {
+		try {
+			Thread.sleep(Math.max(0L, wait.toMillis()));
+			return true;
+		} catch (InterruptedException ex) {
+			Thread.currentThread().interrupt();
+			return false;
+		}
 	}
 
 	private static PaymentHistoryImport running(

@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -281,12 +282,20 @@ public class GmailMailbox {
 	}
 
 	private JsonNode get(String accessToken, String uri) {
-		String raw = http.get()
-				.uri(java.net.URI.create(uri))
-				.header("Authorization", "Bearer " + accessToken)
-				.retrieve()
-				.body(String.class);
-		return parse(raw);
+		try {
+			String raw = http.get()
+					.uri(java.net.URI.create(uri))
+					.header("Authorization", "Bearer " + accessToken)
+					.retrieve()
+					.body(String.class);
+			return parse(raw);
+		} catch (HttpStatusCodeException ex) {
+			String body = ex.getResponseBodyAsString();
+			if (body.contains("rateLimitExceeded") || body.contains("Quota exceeded")) {
+				throw new GmailQuotaException(ex);
+			}
+			throw ex;
+		}
 	}
 
 	private JsonNode parse(String raw) {
