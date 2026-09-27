@@ -185,7 +185,10 @@ public class GmailLinkService {
 		if (!plans.allowsEmail(connection.organizationId())) {
 			return;
 		}
-		for (GmailMailbox.BankMail mail : gmail.recentReceipts(access, floor)) {
+		String shopName = owners.findByOrganization(connection.organizationId())
+				.map(shop -> shop.organization().name())
+				.orElse("");
+		for (GmailMailbox.BankMail mail : gmail.recentReceipts(access, floor, shopName)) {
 			ingest.ingestEmail(
 					connection.organizationId(),
 					mail.from(),

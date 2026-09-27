@@ -10,6 +10,8 @@ public interface PaymentHistoryRepository {
 
 	Optional<PaymentHistoryImport> find(UUID organizationId);
 
+	List<UUID> runningIds();
+
 	void save(PaymentHistoryImport row);
 
 	void rememberMessages(UUID organizationId, List<String> gmailIds);

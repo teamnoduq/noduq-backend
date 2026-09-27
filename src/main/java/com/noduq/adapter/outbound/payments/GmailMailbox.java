@@ -13,6 +13,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -42,7 +43,6 @@ public class GmailMailbox {
 			+ BANK_SENDERS.stream().map(address -> "from:" + address).reduce((left, right) -> left + " OR " + right).orElse("")
 			+ ")";
 	private static final DateTimeFormatter GMAIL_DAY = DateTimeFormatter.ofPattern("yyyy/MM/dd");
-	private static final String QUERY = BANK_FROM + " newer_than:2d";
 
 	private final RestClient http;
 	private final ObjectMapper json;
@@ -135,10 +135,12 @@ public class GmailMailbox {
 			String fromAddress,
 			LocalDate afterDay,
 			LocalDate beforeDay,
+			String shopName,
 			String pageToken) {
-		String query = "from:" + fromAddress
-				+ " after:" + afterDay.format(GMAIL_DAY)
-				+ " before:" + beforeDay.format(GMAIL_DAY);
+		String query = historyQuery(fromAddress, afterDay, beforeDay, shopName);
+		if (query == null) {
+			return new IdPage(List.of(), null);
+		}
 		JsonNode list = listMessages(accessToken, query, pageToken, 100);
 		JsonNode messages = list.path("messages");
 		List<String> ids = new ArrayList<>();
@@ -164,6 +166,38 @@ public class GmailMailbox {
 		return read(accessToken, id);
 	}
 
+	/**
+	 * Bank mail that names this shop and says the shop received the money.
+	 * A blank shop matches nothing, so a mailbox is never listed in full.
+	 */
+	static String historyQuery(String fromAddress, LocalDate afterDay, LocalDate beforeDay, String shopName) {
+		String phrase = shopPhrase(shopName);
+		if (phrase == null || fromAddress == null || fromAddress.isBlank()) {
+			return null;
+		}
+		return "from:" + fromAddress.trim()
+				+ " recibiste "
+				+ phrase
+				+ " after:" + afterDay.format(GMAIL_DAY)
+				+ " before:" + beforeDay.format(GMAIL_DAY);
+	}
+
+	/** Quoted shop name, plus the same name without accents when they differ. */
+	static String shopPhrase(String shopName) {
+		if (shopName == null) {
+			return null;
+		}
+		String original = shopName.replace("\"", "").replaceAll("\\s+", " ").trim();
+		if (original.isEmpty()) {
+			return null;
+		}
+		String plain = Normalizer.normalize(original, Normalizer.Form.NFD).replaceAll("\\p{M}+", "");
+		if (plain.equalsIgnoreCase(original)) {
+			return "\"" + original + "\"";
+		}
+		return "(\"" + original + "\" OR \"" + plain + "\")";
+	}
+
 	private static String gmailDay(Instant instant, int plusDays) {
 		return instant.atZone(java.time.ZoneId.of("America/Bogota"))
 				.toLocalDate()
@@ -171,8 +205,13 @@ public class GmailMailbox {
 				.format(java.time.format.DateTimeFormatter.ofPattern("yyyy/MM/dd"));
 	}
 
-	public List<BankMail> recentReceipts(String accessToken, Instant notBefore) {
-		JsonNode list = listMessages(accessToken, QUERY, null, 20);
+	public List<BankMail> recentReceipts(String accessToken, Instant notBefore, String shopName) {
+		String phrase = shopPhrase(shopName);
+		if (phrase == null) {
+			return List.of();
+		}
+		String query = BANK_FROM + " recibiste " + phrase + " newer_than:2d";
+		JsonNode list = listMessages(accessToken, query, null, 20);
 		JsonNode messages = list.path("messages");
 		List<BankMail> receipts = new ArrayList<>();
 		if (!messages.isArray()) {

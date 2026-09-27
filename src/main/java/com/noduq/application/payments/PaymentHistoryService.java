@@ -13,12 +13,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class PaymentHistoryService {
@@ -30,6 +33,8 @@ public class PaymentHistoryService {
 	private static final String SAVE = "S";
 	private static final String SEP = "\u001f";
 	private static final int SAVE_BATCH = 5;
+	/** How many messages the server opens on each step, without a phone in the loop. */
+	private static final int SERVER_SAVE_BATCH = 20;
 
 	private final OwnerAccountService owners;
 	private final OrganizationPlanService plans;
@@ -37,6 +42,7 @@ public class PaymentHistoryService {
 	private final GmailConnectionRepository connections;
 	private final GmailMailbox gmail;
 	private final PaymentIngestService ingest;
+	private final ConcurrentHashMap<UUID, Object> gates = new ConcurrentHashMap<>();
 
 	public PaymentHistoryService(
 			OwnerAccountService owners,
@@ -115,7 +121,10 @@ public class PaymentHistoryService {
 		return running;
 	}
 
-	/** Reads the next page of bank email. The phone calls this until the import is done. */
+	/**
+	 * One step, for a phone that still asks. The import keeps going from the server
+	 * even when this is never called.
+	 */
 	public PaymentHistoryImport pullNext(java.util.UUID profileId) {
 		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
 		workspace.requireOwner();
@@ -123,11 +132,53 @@ public class PaymentHistoryService {
 		if (!plans.allowsEmail(organizationId)) {
 			throw IdentityException.planRequired();
 		}
-		PaymentHistoryImport current = history.find(organizationId)
-				.filter(row -> PaymentHistoryImport.RUNNING.equals(row.status()))
-				.orElseThrow(() -> IdentityException.validation(
-						"HISTORY_NOT_RUNNING",
-						"El histórico no está en curso."));
+		return advanceOne(organizationId, SAVE_BATCH);
+	}
+
+	/** Keeps every running import moving. The phone is only a window onto the progress. */
+	public void advanceRunning(Duration budget) {
+		Instant deadline = Instant.now().plus(budget);
+		for (java.util.UUID organizationId : history.runningIds()) {
+			if (!Instant.now().isBefore(deadline)) {
+				return;
+			}
+			try {
+				advance(organizationId, deadline, SERVER_SAVE_BATCH);
+			} catch (RuntimeException ex) {
+				log.warn("History advance failed org={}: {}", organizationId, ex.toString());
+			}
+		}
+	}
+
+	private void advance(java.util.UUID organizationId, Instant deadline, int saveBatch) {
+		synchronized (gate(organizationId)) {
+			while (Instant.now().isBefore(deadline)) {
+				PaymentHistoryImport current = history.find(organizationId)
+						.filter(row -> PaymentHistoryImport.RUNNING.equals(row.status()))
+						.orElse(null);
+				if (current == null) {
+					return;
+				}
+				PaymentHistoryImport next = step(organizationId, current, saveBatch);
+				if (PaymentHistoryImport.DONE.equals(next.status())) {
+					return;
+				}
+			}
+		}
+	}
+
+	private PaymentHistoryImport advanceOne(java.util.UUID organizationId, int saveBatch) {
+		synchronized (gate(organizationId)) {
+			PaymentHistoryImport current = history.find(organizationId)
+					.filter(row -> PaymentHistoryImport.RUNNING.equals(row.status()))
+					.orElseThrow(() -> IdentityException.validation(
+							"HISTORY_NOT_RUNNING",
+							"El histórico no está en curso."));
+			return step(organizationId, current, saveBatch);
+		}
+	}
+
+	private PaymentHistoryImport step(java.util.UUID organizationId, PaymentHistoryImport current, int saveBatch) {
 		GmailConnection connection = requireMailbox(organizationId);
 		String access = gmail.refreshAccessToken(connection.refreshToken());
 		if (access == null) {
@@ -136,9 +187,13 @@ public class PaymentHistoryService {
 					"No se pudo entrar al correo. Vuelve a conectarlo.");
 		}
 		if (SAVE.equals(current.pageToken())) {
-			return saveBatch(organizationId, current, access);
+			return saveBatch(organizationId, current, access, saveBatch);
 		}
 		return listBatch(organizationId, current, access);
+	}
+
+	private Object gate(java.util.UUID organizationId) {
+		return gates.computeIfAbsent(organizationId, ignored -> new Object());
 	}
 
 	/** One page of ids. The total stays unknown until every sender and month has been listed. */
@@ -151,12 +206,15 @@ public class PaymentHistoryService {
 			return beginSave(organizationId, current);
 		}
 		String sender = GmailMailbox.BANK_SENDERS.get(spot.sender());
+		String shopName = owners.findByOrganization(organizationId)
+				.map(shop -> shop.organization().name())
+				.orElse("");
 		LocalDate afterDay = spot.month().atDay(1).minusDays(1);
 		YearMonth lastMonth = YearMonth.from(current.windowUntil().atZone(BOGOTA));
 		LocalDate beforeDay = spot.month().equals(lastMonth)
 				? current.windowUntil().atZone(BOGOTA).toLocalDate().plusDays(1)
 				: spot.month().plusMonths(1).atDay(1);
-		GmailMailbox.IdPage page = gmail.listIds(access, sender, afterDay, beforeDay, spot.pageToken());
+		GmailMailbox.IdPage page = gmail.listIds(access, sender, afterDay, beforeDay, shopName, spot.pageToken());
 		history.rememberMessages(organizationId, page.ids());
 		String nextToken = page.nextPageToken();
 		if (nextToken != null && nextToken.equals(spot.pageToken())) {
@@ -194,8 +252,12 @@ public class PaymentHistoryService {
 	}
 
 	/** Reads a handful of listed messages and stores them without ringing the counter. */
-	private PaymentHistoryImport saveBatch(java.util.UUID organizationId, PaymentHistoryImport current, String access) {
-		List<String> ids = history.nextMessages(organizationId, SAVE_BATCH);
+	private PaymentHistoryImport saveBatch(
+			java.util.UUID organizationId,
+			PaymentHistoryImport current,
+			String access,
+			int saveBatch) {
+		List<String> ids = history.nextMessages(organizationId, saveBatch);
 		if (ids.isEmpty()) {
 			PaymentHistoryImport done = done(current, current.totalMessages(), current.storedMessages());
 			history.save(done);

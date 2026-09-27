@@ -40,6 +40,13 @@ public class JdbcPaymentHistoryRepository implements PaymentHistoryRepository {
 	}
 
 	@Override
+	public List<UUID> runningIds() {
+		return jdbc.query(
+				"select organization_id from payment_history_imports where status = 'running'",
+				(rs, rowNum) -> rs.getObject("organization_id", UUID.class));
+	}
+
+	@Override
 	public void save(PaymentHistoryImport row) {
 		jdbc.update(
 				"""
