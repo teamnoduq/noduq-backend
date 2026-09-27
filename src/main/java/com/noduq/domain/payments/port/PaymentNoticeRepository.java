@@ -49,4 +49,7 @@ public interface PaymentNoticeRepository {
 	 * Later copies are a no-op and still return the row.
 	 */
 	Optional<PaymentNotice> markEmailConfirmed(UUID organizationId, String fingerprint, java.time.Instant at);
+
+	/** Oldest moment on a stored notice, the first payment this shop actually kept. */
+	Optional<Instant> earliest(UUID organizationId);
 }

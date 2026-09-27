@@ -72,22 +72,26 @@ public class PaymentController {
 
 	@GetMapping("/history")
 	HistoryResponse history(Authentication authentication) {
-		return HistoryResponse.from(history.status(OwnerAuth.userId(authentication)));
+		return present(authentication, history.status(OwnerAuth.userId(authentication)));
 	}
 
 	@PostMapping("/history/defer")
 	HistoryResponse deferHistory(Authentication authentication) {
-		return HistoryResponse.from(history.defer(OwnerAuth.userId(authentication)));
+		return present(authentication, history.defer(OwnerAuth.userId(authentication)));
 	}
 
 	@PostMapping("/history/start")
 	HistoryResponse startHistory(Authentication authentication) {
-		return HistoryResponse.from(history.start(OwnerAuth.userId(authentication)));
+		return present(authentication, history.start(OwnerAuth.userId(authentication)));
 	}
 
 	@PostMapping("/history/batches")
 	HistoryResponse historyBatch(Authentication authentication) {
-		return HistoryResponse.from(history.pullNext(OwnerAuth.userId(authentication)));
+		return present(authentication, history.pullNext(OwnerAuth.userId(authentication)));
+	}
+
+	private HistoryResponse present(Authentication authentication, PaymentHistoryImport row) {
+		return HistoryResponse.from(row, history.earliest(OwnerAuth.userId(authentication)));
 	}
 
 	public record HistoryResponse(
@@ -98,11 +102,12 @@ public class PaymentController {
 			int processed,
 			int stored,
 			int percent,
-			Instant finishedAt) {
+			Instant finishedAt,
+			Instant earliestAt) {
 
-		static HistoryResponse from(PaymentHistoryImport row) {
+		static HistoryResponse from(PaymentHistoryImport row, Instant earliestAt) {
 			if (row == null) {
-				return new HistoryResponse("available", null, null, 0, 0, 0, 0, null);
+				return new HistoryResponse("available", null, null, 0, 0, 0, 0, null, earliestAt);
 			}
 			return new HistoryResponse(
 					row.status(),
@@ -112,7 +117,8 @@ public class PaymentController {
 					row.processedMessages(),
 					row.storedMessages(),
 					row.percent(),
-					row.finishedAt());
+					row.finishedAt(),
+					earliestAt);
 		}
 	}
 }

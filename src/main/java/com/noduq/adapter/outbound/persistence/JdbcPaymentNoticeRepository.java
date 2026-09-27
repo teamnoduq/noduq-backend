@@ -147,6 +147,19 @@ public class JdbcPaymentNoticeRepository implements PaymentNoticeRepository {
 		return row;
 	}
 
+	@Override
+	public Optional<Instant> earliest(UUID organizationId) {
+		Timestamp stamp = jdbc.queryForObject(
+				"""
+						select min(coalesce(occurred_at, received_at))
+						from payment_notices
+						where organization_id = ?
+						""",
+				Timestamp.class,
+				organizationId);
+		return stamp == null ? Optional.empty() : Optional.of(stamp.toInstant());
+	}
+
 	private static Timestamp stamp(Instant instant) {
 		return instant == null ? null : Timestamp.from(instant);
 	}

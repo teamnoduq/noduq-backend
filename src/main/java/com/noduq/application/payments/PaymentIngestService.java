@@ -298,9 +298,7 @@ public class PaymentIngestService {
 		if (sentAt == null) {
 			return false;
 		}
-		Instant floor = Instant.parse("2025-12-31T19:00:00Z");
-		Instant ceiling = Instant.now().plus(Duration.ofMinutes(10));
-		return !sentAt.isBefore(floor) && !sentAt.isAfter(ceiling);
+		return !sentAt.isAfter(Instant.now().plus(Duration.ofMinutes(10)));
 	}
 
 	private static Instant receivedAt(Instant sentAt) {

@@ -131,14 +131,8 @@ public class GmailMailbox {
 	 * Ids only, one sender and one date span. A huge OR across the whole year makes Gmail
 	 * stop early and invent a total; a narrow query pages through to the end.
 	 */
-	public IdPage listIds(
-			String accessToken,
-			String fromAddress,
-			LocalDate afterDay,
-			LocalDate beforeDay,
-			String shopName,
-			String pageToken) {
-		String query = historyQuery(fromAddress, afterDay, beforeDay, shopName);
+	public IdPage listIds(String accessToken, String fromAddress, String shopName, String pageToken) {
+		String query = historyQuery(fromAddress, shopName);
 		if (query == null) {
 			return new IdPage(List.of(), null);
 		}
@@ -154,12 +148,10 @@ public class GmailMailbox {
 			}
 		}
 		log.info(
-				"Gmail history ids listed={} more={} from={} after={} before={}",
+				"Gmail history ids listed={} more={} from={}",
 				ids.size(),
 				list.hasNonNull("nextPageToken"),
-				fromAddress,
-				afterDay,
-				beforeDay);
+				fromAddress);
 		return new IdPage(ids, text(list, "nextPageToken"));
 	}
 
@@ -169,18 +161,15 @@ public class GmailMailbox {
 
 	/**
 	 * Bank mail that names this shop and says the shop received the money.
+	 * No date bound: the whole mailbox is listed, a page at a time.
 	 * A blank shop matches nothing, so a mailbox is never listed in full.
 	 */
-	static String historyQuery(String fromAddress, LocalDate afterDay, LocalDate beforeDay, String shopName) {
+	static String historyQuery(String fromAddress, String shopName) {
 		String phrase = shopPhrase(shopName);
 		if (phrase == null || fromAddress == null || fromAddress.isBlank()) {
 			return null;
 		}
-		return "from:" + fromAddress.trim()
-				+ " recibiste "
-				+ phrase
-				+ " after:" + afterDay.format(GMAIL_DAY)
-				+ " before:" + beforeDay.format(GMAIL_DAY);
+		return "from:" + fromAddress.trim() + " recibiste " + phrase;
 	}
 
 	/** Quoted shop name, plus the same name without accents when they differ. */

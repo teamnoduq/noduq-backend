@@ -1,5 +1,6 @@
 package com.noduq.application.payments;
 
+import com.noduq.adapter.inbound.http.PaymentHistoryLive;
 import com.noduq.adapter.outbound.payments.GmailMailbox;
 import com.noduq.adapter.outbound.payments.GmailQuotaException;
 import com.noduq.application.identity.OrganizationPlanService;
@@ -10,16 +11,13 @@ import com.noduq.domain.payments.GmailConnection;
 import com.noduq.domain.payments.PaymentHistoryImport;
 import com.noduq.domain.payments.port.GmailConnectionRepository;
 import com.noduq.domain.payments.port.PaymentHistoryRepository;
+import com.noduq.domain.payments.port.PaymentNoticeRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.YearMonth;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -30,7 +28,6 @@ public class PaymentHistoryService {
 
 	private static final Logger log = LoggerFactory.getLogger(PaymentHistoryService.class);
 
-	static final ZoneId BOGOTA = ZoneId.of("America/Bogota");
 	private static final String LIST = "L";
 	private static final String SAVE = "S";
 	private static final String SEP = "\u001f";
@@ -48,6 +45,8 @@ public class PaymentHistoryService {
 	private final GmailConnectionRepository connections;
 	private final GmailMailbox gmail;
 	private final PaymentIngestService ingest;
+	private final PaymentNoticeRepository notices;
+	private final PaymentHistoryLive live;
 	private final ConcurrentHashMap<UUID, Object> gates = new ConcurrentHashMap<>();
 
 	public PaymentHistoryService(
@@ -56,13 +55,22 @@ public class PaymentHistoryService {
 			PaymentHistoryRepository history,
 			GmailConnectionRepository connections,
 			GmailMailbox gmail,
-			PaymentIngestService ingest) {
+			PaymentIngestService ingest,
+			PaymentNoticeRepository notices,
+			PaymentHistoryLive live) {
 		this.owners = owners;
 		this.plans = plans;
 		this.history = history;
 		this.connections = connections;
 		this.gmail = gmail;
 		this.ingest = ingest;
+		this.notices = notices;
+		this.live = live;
+	}
+
+	public Instant earliest(java.util.UUID profileId) {
+		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
+		return notices.earliest(workspace.organization().id()).orElse(null);
 	}
 
 	public PaymentHistoryImport status(java.util.UUID profileId) {
@@ -91,7 +99,7 @@ public class PaymentHistoryService {
 				null,
 				null,
 				null);
-		history.save(deferred);
+		persist(deferred);
 		return deferred;
 	}
 
@@ -120,10 +128,10 @@ public class PaymentHistoryService {
 				0,
 				0,
 				0,
-				listCursor(0, YearMonth.from(windowFrom().atZone(BOGOTA)), null),
+				listCursor(0, null),
 				now,
 				null);
-		history.save(running);
+		persist(running);
 		return running;
 	}
 
@@ -202,12 +210,12 @@ public class PaymentHistoryService {
 		return gates.computeIfAbsent(organizationId, ignored -> new Object());
 	}
 
-	/** One page of ids. The total stays unknown until every sender and month has been listed. */
+	/** One page of ids for one bank sender. The total stays unknown until every sender is listed. */
 	private PaymentHistoryImport listBatch(java.util.UUID organizationId, PaymentHistoryImport current, String access) {
-		if (current.pageToken() == null || !current.pageToken().startsWith(LIST + SEP)) {
+		if (current.pageToken() == null || !current.pageToken().startsWith(LIST + SEP) || monthCursor(current.pageToken())) {
 			history.clearMessages(organizationId);
 		}
-		ListSpot spot = parseList(current.pageToken(), current.windowFrom());
+		ListSpot spot = parseList(current.pageToken());
 		if (spot.sender() >= GmailMailbox.BANK_SENDERS.size()) {
 			return beginSave(organizationId, current);
 		}
@@ -215,12 +223,7 @@ public class PaymentHistoryService {
 		String shopName = owners.findByOrganization(organizationId)
 				.map(shop -> shop.organization().name())
 				.orElse("");
-		LocalDate afterDay = spot.month().atDay(1).minusDays(1);
-		YearMonth lastMonth = YearMonth.from(current.windowUntil().atZone(BOGOTA));
-		LocalDate beforeDay = spot.month().equals(lastMonth)
-				? current.windowUntil().atZone(BOGOTA).toLocalDate().plusDays(1)
-				: spot.month().plusMonths(1).atDay(1);
-		GmailMailbox.IdPage page = gmail.listIds(access, sender, afterDay, beforeDay, shopName, spot.pageToken());
+		GmailMailbox.IdPage page = gmail.listIds(access, sender, shopName, spot.pageToken());
 		history.rememberMessages(organizationId, page.ids());
 		String nextToken = page.nextPageToken();
 		if (nextToken != null && nextToken.equals(spot.pageToken())) {
@@ -228,20 +231,15 @@ public class PaymentHistoryService {
 		}
 		String cursor;
 		if (nextToken != null) {
-			cursor = listCursor(spot.sender(), spot.month(), nextToken);
+			cursor = listCursor(spot.sender(), nextToken);
+		} else if (spot.sender() + 1 < GmailMailbox.BANK_SENDERS.size()) {
+			cursor = listCursor(spot.sender() + 1, null);
 		} else {
-			YearMonth nextMonth = spot.month().plusMonths(1);
-			if (!nextMonth.isAfter(lastMonth)) {
-				cursor = listCursor(spot.sender(), nextMonth, null);
-			} else if (spot.sender() + 1 < GmailMailbox.BANK_SENDERS.size()) {
-				cursor = listCursor(spot.sender() + 1, YearMonth.from(current.windowFrom().atZone(BOGOTA)), null);
-			} else {
-				return beginSave(organizationId, current);
-			}
+			return beginSave(organizationId, current);
 		}
 		int found = history.countMessages(organizationId);
 		PaymentHistoryImport next = running(current, 0, found, 0, cursor);
-		history.save(next);
+		persist(next);
 		return next;
 	}
 
@@ -249,11 +247,11 @@ public class PaymentHistoryService {
 		int total = history.countMessages(organizationId);
 		if (total == 0) {
 			PaymentHistoryImport done = done(current, 0, 0);
-			history.save(done);
+			persist(done);
 			return done;
 		}
 		PaymentHistoryImport next = running(current, total, 0, current.storedMessages(), SAVE);
-		history.save(next);
+		persist(next);
 		return next;
 	}
 
@@ -266,7 +264,7 @@ public class PaymentHistoryService {
 		List<String> ids = history.nextMessages(organizationId, saveBatch);
 		if (ids.isEmpty()) {
 			PaymentHistoryImport done = done(current, current.totalMessages(), current.storedMessages());
-			history.save(done);
+			persist(done);
 			return done;
 		}
 		int stored = current.storedMessages();
@@ -277,9 +275,7 @@ public class PaymentHistoryService {
 			}
 			try {
 				GmailMailbox.BankMail mail = gmail.readMail(access, id);
-				if (mail != null
-						&& !mail.sentAt().isBefore(current.windowFrom())
-						&& !mail.sentAt().isAfter(current.windowUntil())) {
+				if (mail != null) {
 					PaymentIngestService.Ingested ingested = ingest.ingestHistoricalEmail(
 							organizationId,
 							mail.from(),
@@ -312,11 +308,11 @@ public class PaymentHistoryService {
 		int processed = current.totalMessages() - remaining;
 		if (remaining == 0) {
 			PaymentHistoryImport done = done(current, current.totalMessages(), stored);
-			history.save(done);
+			persist(done);
 			return done;
 		}
 		PaymentHistoryImport next = running(current, current.totalMessages(), processed, stored, SAVE);
-		history.save(next);
+		persist(next);
 		return next;
 	}
 
@@ -377,33 +373,43 @@ public class PaymentHistoryService {
 						"Conecta el correo para traer el histórico."));
 	}
 
-	private static String listCursor(int sender, YearMonth month, String pageToken) {
-		return LIST + SEP + sender + SEP + month + SEP + (pageToken == null ? "" : pageToken);
+	private static String listCursor(int sender, String pageToken) {
+		return LIST + SEP + sender + SEP + (pageToken == null ? "" : pageToken);
 	}
 
-	private static ListSpot parseList(String token, Instant windowFrom) {
-		YearMonth first = YearMonth.from(windowFrom.atZone(BOGOTA));
-		if (token == null || !token.startsWith(LIST + SEP)) {
-			return new ListSpot(0, first, null);
-		}
+	/** Cursors from the old month-by-month search. Those runs start over without a date floor. */
+	private static boolean monthCursor(String token) {
 		String[] parts = token.split(SEP, 4);
-		if (parts.length < 4) {
-			return new ListSpot(0, first, null);
+		return parts.length >= 3 && parts[2].matches("\\d{4}-\\d{2}.*");
+	}
+
+	private static ListSpot parseList(String token) {
+		if (token == null || !token.startsWith(LIST + SEP) || monthCursor(token)) {
+			return new ListSpot(0, null);
+		}
+		String[] parts = token.split(SEP, 3);
+		if (parts.length < 3) {
+			return new ListSpot(0, null);
 		}
 		try {
 			int sender = Integer.parseInt(parts[1]);
-			YearMonth month = YearMonth.parse(parts[2]);
-			String page = parts[3].isBlank() ? null : parts[3];
-			return new ListSpot(sender, month, page);
+			String page = parts[2].isBlank() ? null : parts[2];
+			return new ListSpot(sender, page);
 		} catch (RuntimeException ex) {
-			return new ListSpot(0, first, null);
+			return new ListSpot(0, null);
 		}
 	}
 
-	private record ListSpot(int sender, YearMonth month, String pageToken) {
+	private void persist(PaymentHistoryImport row) {
+		history.save(row);
+		live.publish(row);
 	}
 
+	private record ListSpot(int sender, String pageToken) {
+	}
+
+	/** No start date. The column stays filled so older rows still have a value. */
 	static Instant windowFrom() {
-		return ZonedDateTime.of(2026, 1, 1, 0, 0, 0, 0, BOGOTA).toInstant();
+		return Instant.EPOCH;
 	}
 }
