@@ -49,8 +49,9 @@ public final class PaymentResponses {
 	}
 
 	/**
-	 * {@code outcome} is {@code stored}, {@code duplicate} or {@code ignored_sender}. All three
-	 * are answered with 200 so the phone never retries a message we already dealt with.
+	 * {@code outcome} is {@code stored}, {@code duplicate}, {@code ignored_sender},
+	 * {@code ignored_not_receipt} or {@code ignored_other_shop}. All of them are answered
+	 * with 200 so the phone never retries a message we already dealt with.
 	 */
 	public record SmsIngestResponse(String outcome, PaymentNoticeResponse notice) {
 

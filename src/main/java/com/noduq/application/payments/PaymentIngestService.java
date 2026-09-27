@@ -45,6 +45,8 @@ public class PaymentIngestService {
 		CONFIRMED,
 		IGNORED_SENDER,
 		IGNORED_NOT_QR,
+		IGNORED_NOT_RECEIPT,
+		IGNORED_OTHER_SHOP,
 		IGNORED_NO_PLAN
 	}
 
@@ -113,6 +115,10 @@ public class PaymentIngestService {
 					sender,
 					senders.isKnownSms(sender));
 			return new Ingested(Outcome.IGNORED_SENDER, null);
+		}
+		Ingested rejected = rejectUnlessThisShop(organizationId, text);
+		if (rejected != null) {
+			return rejected;
 		}
 
 		Instant receivedAt = announce ? receivedAt(sentAt) : sentAt;
@@ -202,6 +208,10 @@ public class PaymentIngestService {
 			}
 			return new Ingested(Outcome.IGNORED_NOT_QR, null);
 		}
+		Ingested rejected = rejectUnlessThisShop(organizationId, text);
+		if (rejected != null) {
+			return rejected;
+		}
 
 		Instant receivedAt = announce ? receivedAt(sentAt) : sentAt;
 		String fingerprint = PaymentFingerprint.of(text, receivedAt);
@@ -241,6 +251,27 @@ public class PaymentIngestService {
 			notifier.announce(notice);
 		}
 		return new Ingested(Outcome.STORED, notice);
+	}
+
+	/**
+	 * A notice is a sale for this shop only when the bank says the shop received the money
+	 * and the shop on the message is this one. {@code pagaste} and another droguería's
+	 * receipt are dropped here, for the live feed and for the history import alike.
+	 */
+	private Ingested rejectUnlessThisShop(UUID organizationId, String text) {
+		String onReceipt = SmsPaymentParser.shopOnReceipt(text);
+		if (onReceipt == null) {
+			log.info("Payment ignored org={}: not a received payment", organizationId);
+			return new Ingested(Outcome.IGNORED_NOT_RECEIPT, null);
+		}
+		String shopName = owners.findByOrganization(organizationId)
+				.map(workspace -> workspace.organization().name())
+				.orElse("");
+		if (!SmsPaymentParser.sameShop(onReceipt, shopName)) {
+			log.info("Payment ignored org={}: receipt is for \"{}\"", organizationId, onReceipt);
+			return new Ingested(Outcome.IGNORED_OTHER_SHOP, null);
+		}
+		return null;
 	}
 
 	private static String require(String body) {

@@ -48,6 +48,11 @@ public class OwnerAccountService {
 		return findWorkspace(profileId).orElseThrow(IdentityException::notProvisioned);
 	}
 
+	@Transactional(readOnly = true)
+	public Optional<OwnerWorkspace> findByOrganization(UUID organizationId) {
+		return workspaces.findByOrganizationId(organizationId);
+	}
+
 	@Transactional
 	public OwnerWorkspace bootstrap(UUID profileId, String displayName, String organizationName) {
 		return workspaces.findByProfileId(profileId).orElseGet(() -> {

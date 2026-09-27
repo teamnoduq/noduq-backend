@@ -3,6 +3,11 @@ package com.noduq.application.payments;
 import com.noduq.application.identity.OrganizationPlanService;
 import com.noduq.application.identity.OwnerAccountService;
 import com.noduq.domain.identity.IdentityException;
+import com.noduq.domain.identity.MemberRole;
+import com.noduq.domain.identity.Organization;
+import com.noduq.domain.identity.OrganizationMember;
+import com.noduq.domain.identity.OwnerWorkspace;
+import com.noduq.domain.identity.Profile;
 import com.noduq.domain.payments.BankSenders;
 import com.noduq.domain.payments.PaymentNotice;
 import com.noduq.domain.payments.PaymentSource;
@@ -15,6 +20,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -36,6 +43,10 @@ class PaymentIngestServiceTest {
 			+ "JUAN DAVID MARRUGO NARVAEZ por $6,500.00 en tu cuenta *8186 conectado a la llave "
 			+ "0089074729 el 12/09/2026 a las 15:11. Con codigo QR es facil y de una. "
 			+ "Dudas al 018000912345.";
+
+	private static final String PAID_OUT = "Bancolombia: RONALDINHO ORTEGA RUIZ pagaste $6,100.00 "
+			+ "por codigo QR desde tu cuenta *8186 a la llave 0081213159 el 25/09/2026 a las 21:56. "
+			+ "Con codigo QR es facil y de una. Dudas al 018000912345.";
 
 	private static final UUID ORGANIZATION = UUID.randomUUID();
 
@@ -66,6 +77,7 @@ class PaymentIngestServiceTest {
 
 	@Test
 	void storesAndAnnouncesAReceiptFromTheShortCode() {
+		thisShop();
 		echoInsert();
 
 		PaymentIngestService.Ingested ingested = service.ingestSms(ORGANIZATION, "85540", RECEIPT, null);
@@ -110,6 +122,7 @@ class PaymentIngestServiceTest {
 				"fp",
 				null,
 				null);
+		thisShop();
 		when(notices.insertIfNew(any())).thenReturn(Optional.empty());
 		when(notices.findByFingerprint(any(), any())).thenReturn(Optional.of(existing));
 
@@ -122,6 +135,7 @@ class PaymentIngestServiceTest {
 
 	@Test
 	void keepsTheSameFingerprintForTheSameMessageSoRepeatsCanBeSpotted() {
+		thisShop();
 		echoInsert();
 
 		service.ingestSms(ORGANIZATION, "85540", RECEIPT, null);
@@ -135,11 +149,48 @@ class PaymentIngestServiceTest {
 	}
 
 	@Test
-	void storesAMessageItCannotReadRatherThanLosingThePayment() {
+	void ignoresMoneyTheOwnerPaidOutEvenFromTheReceiptShortCode() {
+		PaymentIngestService.Ingested ingested = service.ingestSms(ORGANIZATION, "85540", PAID_OUT, null);
+
+		assertEquals(PaymentIngestService.Outcome.IGNORED_NOT_RECEIPT, ingested.outcome());
+		verifyNoInteractions(notices, notifier);
+	}
+
+	@Test
+	void ignoresAReceiptForAnotherShop() {
+		when(owners.findByOrganization(ORGANIZATION)).thenReturn(Optional.of(shop("Prueba")));
+
+		PaymentIngestService.Ingested ingested = service.ingestSms(ORGANIZATION, "85540", RECEIPT, null);
+
+		assertEquals(PaymentIngestService.Outcome.IGNORED_OTHER_SHOP, ingested.outcome());
+		verifyNoInteractions(notices, notifier);
+	}
+
+	@Test
+	void ignoresAYessiReceiptArrivingByEmail() {
+		when(owners.findByOrganization(ORGANIZATION)).thenReturn(Optional.of(shop("Prueba")));
+		String yessi = RECEIPT.replace("DROGUERIA RICKY", "DROGUERÍA YESSI");
+
+		PaymentIngestService.Ingested ingested = service.ingestEmail(
+				ORGANIZATION,
+				"alertasynotificaciones@ayn.notificacionesbancolombia.com",
+				yessi,
+				null);
+
+		assertEquals(PaymentIngestService.Outcome.IGNORED_OTHER_SHOP, ingested.outcome());
+		verifyNoInteractions(notices, notifier);
+	}
+
+	@Test
+	void storesAReceiptForThisShopEvenWhenThePayerCannotBeRead() {
+		thisShop();
 		echoInsert();
 
 		PaymentIngestService.Ingested ingested = service.ingestSms(
-				ORGANIZATION, "85540", "Bancolombia informa una novedad en tu producto", null);
+				ORGANIZATION,
+				"85540",
+				"Bancolombia: DROGUERIA RICKY, recibiste un pago de .",
+				null);
 
 		assertEquals(PaymentIngestService.Outcome.STORED, ingested.outcome());
 		assertFalse(ingested.notice().readable());
@@ -149,6 +200,7 @@ class PaymentIngestServiceTest {
 
 	@Test
 	void doesNotKeepTheRawMessageWhenItCouldBeRead() {
+		thisShop();
 		echoInsert();
 
 		PaymentIngestService.Ingested ingested = service.ingestSms(ORGANIZATION, "85540", RECEIPT, null);
@@ -173,6 +225,7 @@ class PaymentIngestServiceTest {
 
 	@Test
 	void storesAReceiptThatArrivedOnlyByEmail() {
+		thisShop();
 		when(notices.findByFingerprint(any(), any())).thenReturn(Optional.empty());
 		echoInsert();
 
@@ -190,6 +243,7 @@ class PaymentIngestServiceTest {
 
 	@Test
 	void marksTheSmsRowWhenTheSameWordingArrivesByEmail() {
+		thisShop();
 		PaymentNotice sms = smsNotice();
 		when(notices.findByFingerprint(any(), any())).thenReturn(Optional.of(sms));
 		when(notices.markEmailConfirmed(any(), any(), any())).thenAnswer(invocation -> {
@@ -245,6 +299,7 @@ class PaymentIngestServiceTest {
 
 	@Test
 	void hashesSmsAndEmailTheSameSoTheSecondCopyIsAConfirmation() {
+		thisShop();
 		echoInsert();
 
 		PaymentNotice sms = service.ingestSms(ORGANIZATION, "85540", RECEIPT, null).notice();
@@ -268,5 +323,20 @@ class PaymentIngestServiceTest {
 
 	private void echoInsert() {
 		when(notices.insertIfNew(any())).thenAnswer(invocation -> Optional.of(invocation.getArgument(0)));
+	}
+
+	/** The receipt says DROGUERIA RICKY; the shop is stored with an accent, and that still matches. */
+	private void thisShop() {
+		when(owners.findByOrganization(ORGANIZATION)).thenReturn(Optional.of(shop("Droguería Ricky")));
+	}
+
+	private static OwnerWorkspace shop(String name) {
+		UUID profileId = UUID.randomUUID();
+		Instant now = Instant.parse("2026-09-01T00:00:00Z");
+		return new OwnerWorkspace(
+				new Profile(profileId, "Dueño", now),
+				new Organization(ORGANIZATION, name, null, null, now),
+				new OrganizationMember(UUID.randomUUID(), ORGANIZATION, profileId, MemberRole.OWNER, now),
+				List.of());
 	}
 }

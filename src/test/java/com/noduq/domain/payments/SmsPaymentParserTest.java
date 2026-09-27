@@ -163,6 +163,25 @@ class SmsPaymentParserTest {
 		}
 
 		@Test
+		void namesTheShopThatReceivedTheMoney() {
+			assertEquals("DROGUERIA RICKY", SmsPaymentParser.shopOnReceipt(MESSAGE));
+		}
+
+		@Test
+		void treatsAnAccentedShopNameAsTheSameShop() {
+			assertTrue(SmsPaymentParser.sameShop("DROGUERIA RICKY", "Droguería Ricky"));
+			assertFalse(SmsPaymentParser.sameShop("DROGUERIA RICKY", "Prueba"));
+		}
+
+		@Test
+		void doesNotTreatMoneyTheOwnerPaidOutAsAReceipt() {
+			String paidOut = "Bancolombia: RONALDINHO ORTEGA RUIZ pagaste $6,100.00 por codigo QR "
+					+ "desde tu cuenta *8186 a la llave 0081213159 el 25/09/2026 a las 21:56. "
+					+ "Con codigo QR es facil y de una. Dudas al 018000912345.";
+			assertNull(SmsPaymentParser.shopOnReceipt(paidOut));
+		}
+
+		@Test
 		void neverKeepsTheKeyOrTheHelpLineWhenTheMessageHasToBeSavedForDebugging() {
 			String masked = SmsPaymentParser.maskDigits(MESSAGE);
 			assertFalse(masked.contains("0089074729"), "the QR key must not survive masking");

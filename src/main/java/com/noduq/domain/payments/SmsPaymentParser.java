@@ -2,6 +2,7 @@ package com.noduq.domain.payments;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.text.Normalizer;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -53,6 +54,14 @@ public final class SmsPaymentParser {
 	/** "en tu cuenta *8186": the only digits of the account we ever look at, and never keep. */
 	private static final Pattern ACCOUNT_LAST4 = Pattern.compile("(?i)cuenta\\s*\\*?\\s*(\\d{4})\\b");
 
+	/**
+	 * A sale names the shop, then says the shop received the money:
+	 * {@code Bancolombia: DROGUERIA RICKY, recibiste un pago de …}.
+	 * {@code pagaste} is the account holder paying someone else and does not match.
+	 */
+	private static final Pattern RECEIVED_SHOP = Pattern.compile(
+			"(?i)bancolombia:\\s*(.+?)\\s*,\\s*recibiste un pago\\b");
+
 	/** Words that follow the payer's name and mark where it ends. */
 	private static final List<String> NAME_STOPS = List.of(
 			" el ", " a las ", " a la ", " en ", " por ", " con ", " para ", " hora", " fecha",
@@ -101,12 +110,39 @@ public final class SmsPaymentParser {
 	}
 
 	/**
-	 * The last four digits of the account the money landed in, used only to confirm the
-	 * notice belongs to this shop. Never stored.
+	 * The last four digits of the account named in the message. Never stored, and not used
+	 * to decide which shop a notice belongs to: Ricky and an outgoing payment can share them.
 	 */
 	public static String accountLast4(String body) {
 		Matcher matcher = ACCOUNT_LAST4.matcher(flatten(body));
 		return matcher.find() ? matcher.group(1) : null;
+	}
+
+	/**
+	 * The shop a receipt is for, or null when the message is not "recibiste un pago".
+	 */
+	public static String shopOnReceipt(String body) {
+		Matcher matcher = RECEIVED_SHOP.matcher(flatten(body));
+		if (!matcher.find()) {
+			return null;
+		}
+		String shop = matcher.group(1).trim();
+		return shop.isEmpty() ? null : shop;
+	}
+
+	/** Same shop once case, accents and extra spaces are set aside. */
+	public static boolean sameShop(String onReceipt, String organizationName) {
+		if (onReceipt == null || organizationName == null) {
+			return false;
+		}
+		String left = fold(onReceipt);
+		String right = fold(organizationName);
+		return !left.isEmpty() && left.equals(right);
+	}
+
+	private static String fold(String value) {
+		String stripped = Normalizer.normalize(value, Normalizer.Form.NFD).replaceAll("\\p{M}+", "");
+		return stripped.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
 	}
 
 	static BigDecimal amount(String text) {
