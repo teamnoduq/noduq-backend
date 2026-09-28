@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import java.time.Instant;
+import java.util.UUID;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -32,9 +34,22 @@ public class EmployeePaymentController {
 	@GetMapping("/payments")
 	PaymentResponses.PaymentFeedResponse list(
 			@AuthenticationPrincipal EmployeeCaller caller,
-			@RequestParam(required = false) Integer limit) {
+			@RequestParam(required = false) Integer limit,
+			@RequestParam(required = false) Instant since,
+			@RequestParam(required = false) Instant until,
+			@RequestParam(required = false) String q,
+			@RequestParam(required = false) Instant before,
+			@RequestParam(required = false) UUID beforeId) {
 		return PaymentResponses.PaymentFeedResponse.from(
-				feed.forEmployee(caller.organizationId(), caller.employeeId(), limit));
+				feed.forEmployee(
+						caller.organizationId(),
+						caller.employeeId(),
+						limit,
+						since,
+						until,
+						q,
+						before,
+						beforeId));
 	}
 
 	@PostMapping("/devices")

@@ -48,10 +48,20 @@ public class PaymentFeedService {
 	}
 
 	@Transactional(readOnly = true)
-	public Page forEmployee(UUID organizationId, UUID employeeId, Integer limit) {
+	public Page forEmployee(
+			UUID organizationId,
+			UUID employeeId,
+			Integer limit,
+			Instant since,
+			Instant until,
+			String query,
+			Instant before,
+			UUID beforeId) {
 		Employee employee = employees.findById(employeeId).orElseThrow();
-		Instant since = LookbackDays.of(employee.lookbackDays()).floor(Instant.now());
-		return page(organizationId, clamp(limit), since, null, null, null, null, null);
+		Instant floor = LookbackDays.of(employee.lookbackDays()).floor(Instant.now());
+		Instant boundedSince = since == null || since.isBefore(floor) ? floor : since;
+		Instant boundedUntil = until != null && !until.isAfter(floor) ? floor : until;
+		return page(organizationId, clamp(limit), boundedSince, boundedUntil, query, null, before, beforeId);
 	}
 
 	private Page page(
