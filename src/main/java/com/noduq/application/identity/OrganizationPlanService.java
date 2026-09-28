@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.noduq.domain.identity.IdentityException;
 import com.noduq.domain.identity.OrganizationPlan;
 import com.noduq.domain.identity.port.OrganizationPlanRepository;
+import com.noduq.domain.payments.port.GmailConnectionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -22,9 +23,11 @@ public class OrganizationPlanService {
 	private static final Duration ACTIVATE_BRIDGE = Duration.ofDays(35);
 
 	private final OrganizationPlanRepository plans;
+	private final GmailConnectionRepository gmail;
 
-	public OrganizationPlanService(OrganizationPlanRepository plans) {
+	public OrganizationPlanService(OrganizationPlanRepository plans, GmailConnectionRepository gmail) {
 		this.plans = plans;
+		this.gmail = gmail;
 	}
 
 	public Optional<OrganizationPlan> find(UUID organizationId) {
@@ -50,6 +53,7 @@ public class OrganizationPlanService {
 	}
 
 	public OrganizationPlan activateFromClient(UUID organizationId, String entitlement) {
+		boolean wasLive = emailWasLive(organizationId);
 		String resolved = resolveEntitlement(entitlement, null);
 		OrganizationPlan plan = new OrganizationPlan(
 				organizationId,
@@ -59,6 +63,7 @@ public class OrganizationPlanService {
 				null,
 				"client");
 		plans.upsert(plan);
+		openLiveMail(organizationId, wasLive, plan);
 		log.info("Plan activated from client org={} entitlement={}", organizationId, resolved);
 		return plan;
 	}
@@ -137,9 +142,25 @@ public class OrganizationPlanService {
 		if (entitlement == null) {
 			entitlement = OrganizationPlan.SMS;
 		}
+		boolean wasLive = emailWasLive(organizationId);
 		OrganizationPlan plan = new OrganizationPlan(organizationId, entitlement, status, ends, product, eventId);
 		plans.upsert(plan);
+		openLiveMail(organizationId, wasLive, plan);
 		log.info("RevenueCat {} org={} status={} entitlement={}", type, organizationId, status, entitlement);
+	}
+
+	private boolean emailWasLive(UUID organizationId) {
+		return plans.find(organizationId).map(plan -> plan.allowsEmail(Instant.now())).orElse(false);
+	}
+
+	/** Mail that arrived while the plan was off stays in the mailbox. The counter opens at this instant. */
+	private void openLiveMail(UUID organizationId, boolean wasLive, OrganizationPlan plan) {
+		if (wasLive || !plan.allowsEmail(Instant.now())) {
+			return;
+		}
+		// The live read overlaps five minutes. Stamping ahead of that overlap keeps
+		// mail from the quiet period out of the counter.
+		gmail.touched(organizationId, null, Instant.now().plus(Duration.ofMinutes(5)));
 	}
 
 	private static String statusFor(String type, Instant ends) {

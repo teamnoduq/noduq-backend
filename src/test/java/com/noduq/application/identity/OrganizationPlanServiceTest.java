@@ -3,6 +3,7 @@ package com.noduq.application.identity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.noduq.domain.identity.OrganizationPlan;
 import com.noduq.domain.identity.port.OrganizationPlanRepository;
+import com.noduq.domain.payments.port.GmailConnectionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -16,6 +17,10 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -24,6 +29,9 @@ class OrganizationPlanServiceTest {
 
 	@Mock
 	private OrganizationPlanRepository plans;
+
+	@Mock
+	private GmailConnectionRepository gmail;
 
 	@InjectMocks
 	private OrganizationPlanService service;
@@ -44,9 +52,12 @@ class OrganizationPlanServiceTest {
 				}
 				""".formatted(org));
 
+		when(plans.find(org)).thenReturn(Optional.empty());
+
 		service.applyRevenueCatEvent(json);
 
 		ArgumentCaptor<OrganizationPlan> captor = ArgumentCaptor.forClass(OrganizationPlan.class);
+		verify(gmail).touched(eq(org), isNull(), any());
 		verify(plans).upsert(captor.capture());
 		OrganizationPlan plan = captor.getValue();
 		assertEquals(org, plan.organizationId());
@@ -80,5 +91,28 @@ class OrganizationPlanServiceTest {
 
 		assertEquals("active", restored.status());
 		assertTrue(restored.active(Instant.now()));
+		verify(gmail, never()).touched(any(), any(), any());
+	}
+
+	@Test
+	void anExpiredPlanDoesNotOpenTheMailbox() throws Exception {
+		UUID org = UUID.randomUUID();
+		when(plans.find(org)).thenReturn(Optional.of(new OrganizationPlan(
+				org, OrganizationPlan.SMS, "active", Instant.now().plusSeconds(60), null, "evt-0")));
+		var json = new ObjectMapper().readTree("""
+				{
+				  "event": {
+				    "id": "evt-2",
+				    "type": "EXPIRATION",
+				    "app_user_id": "%s",
+				    "product_id": "noduq_sms_monthly",
+				    "entitlement_ids": ["noduq_sms"]
+				  }
+				}
+				""".formatted(org));
+
+		service.applyRevenueCatEvent(json);
+
+		verify(gmail, never()).touched(any(), any(), any());
 	}
 }

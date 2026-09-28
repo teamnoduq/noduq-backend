@@ -165,15 +165,20 @@ public class GmailLinkService {
 	}
 
 	private void poll(GmailConnection connection) {
+		Instant now = Instant.now();
+		// A quiet plan does not catch up later. The mark moves forward so the day
+		// that passed while it was off never lands on the counter.
+		if (!plans.allowsEmail(connection.organizationId())) {
+			connections.touched(connection.organizationId(), null, now);
+			return;
+		}
 		String access = gmail.refreshAccessToken(connection.refreshToken());
 		if (access == null) {
 			log.warn("Gmail refresh failed org={}", connection.organizationId());
 			return;
 		}
 		GmailMailbox.Profile profile = gmail.profile(access);
-		Instant floor = connection.lastPolledAt() == null
-				? Instant.now().minus(Duration.ofHours(36))
-				: connection.lastPolledAt().minus(Duration.ofMinutes(5));
+		Instant floor = liveFloor(connection.lastPolledAt(), now);
 		// While the history import is walking the mailbox, mail from before it started
 		// belongs to that import and must not ring the counter.
 		PaymentHistoryImport job = history.find(connection.organizationId()).orElse(null);
@@ -181,9 +186,6 @@ public class GmailLinkService {
 				&& PaymentHistoryImport.RUNNING.equals(job.status())
 				&& floor.isBefore(job.windowUntil())) {
 			floor = job.windowUntil();
-		}
-		if (!plans.allowsEmail(connection.organizationId())) {
-			return;
 		}
 		String shopName = owners.findByOrganization(connection.organizationId())
 				.map(shop -> shop.organization().name())
@@ -196,6 +198,18 @@ public class GmailLinkService {
 					mail.sentAt());
 		}
 		connections.touched(connection.organizationId(), profile.historyId(), Instant.now());
+	}
+
+	/**
+	 * The live counter starts at the first read. Later reads overlap a few minutes so a
+	 * receipt that arrives between polls is not skipped. There is no lookback on purpose:
+	 * a new shop, or a plan that just came back, must not fill itself with the day.
+	 */
+	static Instant liveFloor(Instant lastPolledAt, Instant now) {
+		if (lastPolledAt == null) {
+			return now;
+		}
+		return lastPolledAt.minus(Duration.ofMinutes(5));
 	}
 
 	private String sign(UUID profileId, boolean web) {
