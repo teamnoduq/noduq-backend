@@ -1,5 +1,6 @@
 package com.noduq.adapter.outbound.persistence;
 
+import com.noduq.domain.payments.PaymentBucket;
 import com.noduq.domain.payments.PaymentNotice;
 import com.noduq.domain.payments.PaymentSource;
 import com.noduq.domain.payments.PaymentTally;
@@ -8,10 +9,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
+import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -158,6 +161,69 @@ public class JdbcPaymentNoticeRepository implements PaymentNoticeRepository {
 				Timestamp.class,
 				organizationId);
 		return stamp == null ? Optional.empty() : Optional.of(stamp.toInstant());
+	}
+
+	private static final String DAY_BUCKETS = """
+			select (coalesce(occurred_at, received_at) at time zone 'America/Bogota')::date as bucket,
+			       count(*)::bigint as payments,
+			       coalesce(sum(amount), 0) as total
+			from payment_notices
+			where organization_id = ?
+			  and amount is not null
+			  and coalesce(occurred_at, received_at) >= ?
+			  and coalesce(occurred_at, received_at) < ?
+			group by 1
+			order by 1
+			""";
+
+	private static final String MONTH_BUCKETS = """
+			select date_trunc('month', coalesce(occurred_at, received_at) at time zone 'America/Bogota')::date as bucket,
+			       count(*)::bigint as payments,
+			       coalesce(sum(amount), 0) as total
+			from payment_notices
+			where organization_id = ?
+			  and amount is not null
+			  and coalesce(occurred_at, received_at) >= ?
+			  and coalesce(occurred_at, received_at) < ?
+			group by 1
+			order by 1
+			""";
+
+	@Override
+	public List<PaymentBucket> buckets(UUID organizationId, Instant since, Instant until, boolean byMonth) {
+		return jdbc.query(
+				byMonth ? MONTH_BUCKETS : DAY_BUCKETS,
+				(rs, ignored) -> bucket(rs),
+				organizationId,
+				Timestamp.from(since),
+				Timestamp.from(until));
+	}
+
+	@Override
+	public long distinctPayers(UUID organizationId, Instant since, Instant until) {
+		Long count = jdbc.queryForObject(
+				"""
+						select count(distinct lower(btrim(payer_name)))::bigint
+						from payment_notices
+						where organization_id = ?
+						  and amount is not null
+						  and payer_name is not null
+						  and btrim(payer_name) <> ''
+						  and coalesce(occurred_at, received_at) >= ?
+						  and coalesce(occurred_at, received_at) < ?
+						""",
+				Long.class,
+				organizationId,
+				Timestamp.from(since),
+				Timestamp.from(until));
+		return count == null ? 0L : count;
+	}
+
+	private static PaymentBucket bucket(ResultSet rs) throws SQLException {
+		Date day = rs.getDate("bucket");
+		LocalDate start = day == null ? null : day.toLocalDate();
+		BigDecimal total = rs.getBigDecimal("total");
+		return new PaymentBucket(start, rs.getLong("payments"), total == null ? BigDecimal.ZERO : total);
 	}
 
 	private static Timestamp stamp(Instant instant) {

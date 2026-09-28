@@ -1,5 +1,6 @@
 package com.noduq.domain.payments.port;
 
+import com.noduq.domain.payments.PaymentBucket;
 import com.noduq.domain.payments.PaymentNotice;
 import com.noduq.domain.payments.PaymentTally;
 
@@ -52,4 +53,13 @@ public interface PaymentNoticeRepository {
 
 	/** Oldest moment on a stored notice, the first payment this shop actually kept. */
 	Optional<Instant> earliest(UUID organizationId);
+
+	/**
+	 * Payments with an amount, grouped by Bogota day or by Bogota month.
+	 * {@code start} on a month bucket is the first day of that month.
+	 */
+	List<PaymentBucket> buckets(UUID organizationId, Instant since, Instant until, boolean byMonth);
+
+	/** Distinct non-blank payer names in the window. The same person on two days counts once. */
+	long distinctPayers(UUID organizationId, Instant since, Instant until);
 }

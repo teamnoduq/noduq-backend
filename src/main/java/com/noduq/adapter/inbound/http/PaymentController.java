@@ -3,6 +3,7 @@ package com.noduq.adapter.inbound.http;
 import com.noduq.application.payments.PaymentFeedService;
 import com.noduq.application.payments.PaymentHistoryService;
 import com.noduq.application.payments.PaymentIngestService;
+import com.noduq.application.payments.PaymentStatsService;
 import com.noduq.domain.payments.PaymentHistoryImport;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -25,11 +26,17 @@ public class PaymentController {
 	private final PaymentFeedService feed;
 	private final PaymentIngestService ingest;
 	private final PaymentHistoryService history;
+	private final PaymentStatsService stats;
 
-	public PaymentController(PaymentFeedService feed, PaymentIngestService ingest, PaymentHistoryService history) {
+	public PaymentController(
+			PaymentFeedService feed,
+			PaymentIngestService ingest,
+			PaymentHistoryService history,
+			PaymentStatsService stats) {
 		this.feed = feed;
 		this.ingest = ingest;
 		this.history = history;
+		this.stats = stats;
 	}
 
 	@GetMapping
@@ -68,6 +75,14 @@ public class PaymentController {
 	}
 
 	public record SmsRequest(@NotBlank String sender, @NotBlank String message, Instant sentAt) {
+	}
+
+	@GetMapping("/stats")
+	PaymentStatsService.Report stats(
+			Authentication authentication,
+			@RequestParam int year,
+			@RequestParam(required = false) Integer month) {
+		return stats.forOwner(OwnerAuth.userId(authentication), year, month);
 	}
 
 	@GetMapping("/history")
