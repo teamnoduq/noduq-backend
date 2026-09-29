@@ -13,6 +13,7 @@ El dueño entra con JWT de Supabase Auth. El empleado entra con usuario + códig
 - Plan `noduq_sms` (Android, SMS + correo). Sin plan activo no entra al mostrador
 - Histórico: una vez por local, del 1 de enero de 2026 al día en que se pide. Sale del correo del banco, por páginas.
 - Webhook `POST /v1/billing/revenuecat` y `POST /v1/billing/activate` (puente Test Store)
+- Login por QR del escritorio: ticket de un solo uso, 30 segundos, en memoria del proceso. El teléfono (dueño o empleado) lo reclama y la web recibe la sesión.
 - Borrar cuenta: hay que escribir el nombre del local. Si el plan lo cobra Play, primero se cancela la renovación en RevenueCat.
 
 ## Arranque local
@@ -40,7 +41,10 @@ En Windows: `mvnw.cmd`. Maven usa `JAVA_HOME`; este proyecto pide JDK 21.
 | GET/POST | `/v1/employees` | dueño |
 | PATCH/DELETE | `/v1/employees/{id}` | dueño (`lookbackDays`: 1, 3 o 7) |
 | POST | `/v1/employees/{id}/code` | dueño |
-| POST | `/v1/employee/sessions` | empleado |
+| POST | `/v1/desk/tickets` | público, ticket de 30s para el QR del escritorio |
+| GET | `/v1/desk/tickets/{id}?secret=` | público, el escritorio espera el claim |
+| POST | `/v1/desk/tickets/{id}/claim` | dueño (app), abre la sesión web |
+| POST | `/v1/employee/desk/{id}` | empleado (app), abre la sesión web |
 | GET | `/v1/employee/me` | empleado |
 | GET | `/v1/payments` | dueño (`q`, `since`, `until`, `source`) |
 | POST | `/v1/payments/sms` | dueño (teléfono) |

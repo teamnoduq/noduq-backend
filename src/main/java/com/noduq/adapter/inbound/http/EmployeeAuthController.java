@@ -1,6 +1,7 @@
 package com.noduq.adapter.inbound.http;
 
 import com.noduq.adapter.inbound.security.EmployeeCaller;
+import com.noduq.application.identity.DeskLoginService;
 import com.noduq.application.identity.EmployeeSessionService;
 import com.noduq.domain.identity.Branch;
 import com.noduq.domain.identity.Employee;
@@ -11,6 +12,7 @@ import jakarta.validation.constraints.NotBlank;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,9 +23,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class EmployeeAuthController {
 
 	private final EmployeeSessionService sessions;
+	private final DeskLoginService desks;
 
-	public EmployeeAuthController(EmployeeSessionService sessions) {
+	public EmployeeAuthController(EmployeeSessionService sessions, DeskLoginService desks) {
 		this.sessions = sessions;
+		this.desks = desks;
 	}
 
 	@PostMapping("/sessions")
@@ -44,6 +48,11 @@ public class EmployeeAuthController {
 	@DeleteMapping("/sessions/me")
 	void logout(@AuthenticationPrincipal EmployeeCaller caller) {
 		sessions.logout(caller.sessionId());
+	}
+
+	@PostMapping("/desk/{id}")
+	void claimDesk(@AuthenticationPrincipal EmployeeCaller caller, @PathVariable java.util.UUID id) {
+		desks.claimByEmployee(id, caller.employeeId());
 	}
 
 	private static IdentityResponses.EmployeeSessionResponse toResponse(

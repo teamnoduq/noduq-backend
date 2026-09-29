@@ -58,4 +58,76 @@ public class SupabaseAuthUserDirectory implements AuthUserDirectory {
 			log.warn("Auth admin delete failed id={}", authUserId, ex);
 		}
 	}
+
+	@Override
+	public String emailOf(UUID authUserId) {
+		requireServiceRole();
+		try {
+			AdminUser user = http.get()
+					.uri("/auth/v1/admin/users/{id}", authUserId)
+					.header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
+					.header("apikey", serviceRoleKey)
+					.accept(MediaType.APPLICATION_JSON)
+					.retrieve()
+					.body(AdminUser.class);
+			if (user == null || user.email() == null || user.email().isBlank()) {
+				throw IdentityException.unavailable("No se pudo abrir la sesión del escritorio.");
+			}
+			return user.email();
+		} catch (IdentityException ex) {
+			throw ex;
+		} catch (RestClientResponseException ex) {
+			log.warn("Auth admin user failed id={} status={}", authUserId, ex.getStatusCode().value());
+			throw IdentityException.unavailable("No se pudo abrir la sesión del escritorio.");
+		} catch (Exception ex) {
+			log.warn("Auth admin user failed id={}", authUserId, ex);
+			throw IdentityException.unavailable("No se pudo abrir la sesión del escritorio.");
+		}
+	}
+
+	@Override
+	public String issueEmailLoginHash(String email) {
+		requireServiceRole();
+		try {
+			GenerateLinkResponse issued = http.post()
+					.uri("/auth/v1/admin/generate_link")
+					.header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
+					.header("apikey", serviceRoleKey)
+					.contentType(MediaType.APPLICATION_JSON)
+					.accept(MediaType.APPLICATION_JSON)
+					.body(new GenerateLinkRequest("magiclink", email))
+					.retrieve()
+					.body(GenerateLinkResponse.class);
+			if (issued == null || issued.hashedToken() == null || issued.hashedToken().isBlank()) {
+				throw IdentityException.unavailable("No se pudo abrir la sesión del escritorio.");
+			}
+			return issued.hashedToken();
+		} catch (IdentityException ex) {
+			throw ex;
+		} catch (RestClientResponseException ex) {
+			log.warn("Auth generate_link failed status={}", ex.getStatusCode().value());
+			throw IdentityException.unavailable("No se pudo abrir la sesión del escritorio.");
+		} catch (Exception ex) {
+			log.warn("Auth generate_link failed", ex);
+			throw IdentityException.unavailable("No se pudo abrir la sesión del escritorio.");
+		}
+	}
+
+	private void requireServiceRole() {
+		if (serviceRoleKey.isBlank()) {
+			throw IdentityException.unavailable("Falta SUPABASE_SERVICE_ROLE_KEY para el inicio por QR.");
+		}
+	}
+
+	@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+	private record AdminUser(String email) {
+	}
+
+	private record GenerateLinkRequest(String type, String email) {
+	}
+
+	@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+	private record GenerateLinkResponse(
+			@com.fasterxml.jackson.annotation.JsonProperty("hashed_token") String hashedToken) {
+	}
 }

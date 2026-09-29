@@ -55,7 +55,11 @@ public class SecurityConfig {
 	@Bean
 	@Order(0)
 	SecurityFilterChain publicCallbacks(HttpSecurity http) throws Exception {
-		http.securityMatcher("/v1/gmail/callback", "/v1/billing/revenuecat")
+		http.securityMatcher(
+						"/v1/gmail/callback",
+						"/v1/billing/revenuecat",
+						"/v1/desk/tickets",
+						"/v1/desk/tickets/*")
 				.csrf(AbstractHttpConfigurer::disable)
 				.cors(Customizer.withDefaults())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

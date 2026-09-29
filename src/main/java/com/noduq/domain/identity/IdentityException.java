@@ -56,4 +56,8 @@ public class IdentityException extends RuntimeException {
 				403,
 				"Hay que activar el plan para usar NODUQ.");
 	}
+
+	public static IdentityException unavailable(String message) {
+		return new IdentityException("UNAVAILABLE", 503, message);
+	}
 }

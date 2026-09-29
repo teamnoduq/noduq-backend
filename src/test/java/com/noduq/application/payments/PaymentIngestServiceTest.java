@@ -91,6 +91,20 @@ class PaymentIngestServiceTest {
 	}
 
 	@Test
+	void ignoresATextThatArrivedBeforeThisShopExisted() {
+		thisShop();
+
+		PaymentIngestService.Ingested ingested = service.ingestSms(
+				ORGANIZATION,
+				"85540",
+				RECEIPT,
+				Instant.parse("2026-08-01T00:00:00Z"));
+
+		assertEquals(PaymentIngestService.Outcome.IGNORED_BEFORE_SHOP, ingested.outcome());
+		verifyNoInteractions(notices, notifier);
+	}
+
+	@Test
 	void ignoresTheAlertShortCodeThatIsNotAReceipt() {
 		PaymentIngestService.Ingested ingested = service.ingestSms(
 				ORGANIZATION, "891333", "Bancolombia: responde SI o NO a esta compra", null);

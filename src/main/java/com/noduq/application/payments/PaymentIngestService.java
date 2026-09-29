@@ -47,7 +47,8 @@ public class PaymentIngestService {
 		IGNORED_NOT_QR,
 		IGNORED_NOT_RECEIPT,
 		IGNORED_OTHER_SHOP,
-		IGNORED_NO_PLAN
+		IGNORED_NO_PLAN,
+		IGNORED_BEFORE_SHOP
 	}
 
 	public record Ingested(Outcome outcome, PaymentNotice notice) {
@@ -119,6 +120,10 @@ public class PaymentIngestService {
 		Ingested rejected = rejectUnlessThisShop(organizationId, text);
 		if (rejected != null) {
 			return rejected;
+		}
+		if (announce && beforeThisShop(organizationId, sentAt)) {
+			log.info("SMS ignored org={}: the text is from before this shop existed", organizationId);
+			return new Ingested(Outcome.IGNORED_BEFORE_SHOP, null);
 		}
 
 		Instant receivedAt = announce ? receivedAt(sentAt) : sentAt;
@@ -258,6 +263,20 @@ public class PaymentIngestService {
 	 * and the shop on the message is this one. {@code pagaste} and another droguería's
 	 * receipt are dropped here, for the live feed and for the history import alike.
 	 */
+	/** A parked text from the previous account must not land on a shop that did not exist yet. */
+	private boolean beforeThisShop(UUID organizationId, Instant sentAt) {
+		if (sentAt == null) {
+			return false;
+		}
+		Instant opened = owners.findByOrganization(organizationId)
+				.map(shop -> shop.organization().createdAt())
+				.orElse(null);
+		if (opened == null) {
+			return false;
+		}
+		return sentAt.isBefore(opened.minus(Duration.ofMinutes(2)));
+	}
+
 	private Ingested rejectUnlessThisShop(UUID organizationId, String text) {
 		String onReceipt = SmsPaymentParser.shopOnReceipt(text);
 		if (onReceipt == null) {

@@ -105,6 +105,21 @@ public class EmployeeSessionService {
 	}
 
 	@Transactional
+	public OpenedSession openFor(UUID employeeId) {
+		Employee employee = employees.findById(employeeId)
+				.orElseThrow(() -> IdentityException.unauthorized("Sesión inválida."));
+		if (!employee.active()) {
+			throw IdentityException.forbidden("Este empleado está desactivado.");
+		}
+		Instant expiresAt = Instant.now(clock).plus(sessionTtl);
+		EmployeeSession session = employees.insertSession(employee.id(), expiresAt);
+		String token = tokens.issue(session.id(), employee.id(), employee.organizationId(), expiresAt);
+		OwnerWorkspace workspace = workspaces.findByOrganizationId(employee.organizationId())
+				.orElseThrow(() -> IdentityException.unauthorized("Sesión inválida."));
+		return new OpenedSession(token, expiresAt, employee, workspace);
+	}
+
+	@Transactional
 	public void logout(UUID sessionId) {
 		employees.revokeSession(sessionId);
 	}
