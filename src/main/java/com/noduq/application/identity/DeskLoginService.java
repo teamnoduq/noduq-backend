@@ -2,6 +2,7 @@ package com.noduq.application.identity;
 
 import com.noduq.domain.identity.IdentityException;
 import com.noduq.domain.identity.port.AuthUserDirectory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
@@ -23,6 +24,7 @@ public class DeskLoginService {
 	private final EmployeeSessionService sessions;
 	private final Clock clock;
 
+	@Autowired
 	public DeskLoginService(
 			DeskTicketStore tickets,
 			AuthUserDirectory authUsers,
