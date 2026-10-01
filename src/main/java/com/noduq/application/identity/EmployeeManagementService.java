@@ -34,11 +34,26 @@ public class EmployeeManagementService {
 		this.codes = codes;
 	}
 
+	private static final int MAX_LIMIT = 100;
+
 	@Transactional(readOnly = true)
 	public List<Employee> list(UUID profileId) {
 		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
 		workspace.requireOwner();
 		return employees.listByOrganization(workspace.organization().id());
+	}
+
+	@Transactional(readOnly = true)
+	public EmployeePage page(UUID profileId, String query, Integer limit, Integer offset) {
+		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
+		workspace.requireOwner();
+		UUID organizationId = workspace.organization().id();
+		String needle = query == null || query.isBlank() ? null : query.trim();
+		int size = clamp(limit);
+		int start = clampOffset(offset);
+		return new EmployeePage(
+				employees.search(organizationId, needle, size, start),
+				employees.count(organizationId, needle));
 	}
 
 	@Transactional
@@ -161,6 +176,24 @@ public class EmployeeManagementService {
 			throw IdentityException.validation("DISPLAY_NAME_INVALID", "El nombre es demasiado largo.");
 		}
 		return trimmed;
+	}
+
+	private static int clamp(Integer limit) {
+		int size = limit == null ? 10 : limit;
+		if (size < 1) {
+			return 1;
+		}
+		return Math.min(size, MAX_LIMIT);
+	}
+
+	private static int clampOffset(Integer offset) {
+		if (offset == null || offset < 0) {
+			return 0;
+		}
+		return Math.min(offset, 20_000);
+	}
+
+	public record EmployeePage(List<Employee> employees, int count) {
 	}
 
 	public record CreatedEmployee(Employee employee, String code) {

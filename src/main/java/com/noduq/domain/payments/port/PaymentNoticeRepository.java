@@ -32,7 +32,8 @@ public interface PaymentNoticeRepository {
 			String query,
 			String source,
 			Instant before,
-			UUID beforeId);
+			UUID beforeId,
+			int offset);
 
 	PaymentTally tally(
 			UUID organizationId,

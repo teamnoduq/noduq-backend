@@ -40,6 +40,45 @@ public class JdbcEmployeeRepository implements EmployeeRepository {
 	}
 
 	@Override
+	public int count(UUID organizationId, String query) {
+		String like = like(query);
+		Integer total = jdbc.queryForObject(
+				"""
+						select count(*)::int
+						from employees
+						where organization_id = ?
+						  and (cast(? as text) is null or display_name ilike ? or username ilike ?)
+						""",
+				Integer.class,
+				organizationId,
+				like,
+				like,
+				like);
+		return total == null ? 0 : total;
+	}
+
+	@Override
+	public List<Employee> search(UUID organizationId, String query, int limit, int offset) {
+		String like = like(query);
+		return jdbc.query(
+				"""
+						select id, organization_id, branch_id, display_name, username, code_hash, code_lookup, active, lookback_days, created_at
+						from employees
+						where organization_id = ?
+						  and (cast(? as text) is null or display_name ilike ? or username ilike ?)
+						order by created_at desc, id desc
+						limit ? offset ?
+						""",
+				this::employee,
+				organizationId,
+				like,
+				like,
+				like,
+				limit,
+				Math.max(offset, 0));
+	}
+
+	@Override
 	public Set<String> usernamesInOrganization(UUID organizationId) {
 		return new HashSet<>(jdbc.query(
 				"select username from employees where organization_id = ?",
@@ -145,6 +184,10 @@ public class JdbcEmployeeRepository implements EmployeeRepository {
 		jdbc.update(
 				"update employee_sessions set revoked_at = now() where employee_id = ? and revoked_at is null",
 				employeeId);
+	}
+
+	private static String like(String query) {
+		return query == null || query.isBlank() ? null : "%" + query.trim() + "%";
 	}
 
 	private Employee employee(ResultSet rs, int ignored) throws SQLException {

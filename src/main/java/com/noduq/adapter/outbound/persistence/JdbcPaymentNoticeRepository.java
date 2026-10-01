@@ -88,7 +88,8 @@ public class JdbcPaymentNoticeRepository implements PaymentNoticeRepository {
 			String query,
 			String source,
 			Instant before,
-			UUID beforeId) {
+			UUID beforeId,
+			int offset) {
 		String trimmedQuery = like(query);
 		String sourceFilter = sourceFilter(source);
 		Timestamp sinceAt = stamp(since);
@@ -105,6 +106,7 @@ public class JdbcPaymentNoticeRepository implements PaymentNoticeRepository {
 						  )
 						order by coalesce(occurred_at, received_at) desc, id desc
 						limit ?
+						offset ?
 						""",
 				this::notice,
 				organizationId,
@@ -120,7 +122,8 @@ public class JdbcPaymentNoticeRepository implements PaymentNoticeRepository {
 				beforeAt,
 				beforeAt,
 				beforeId,
-				limit);
+				limit,
+				Math.max(offset, 0));
 	}
 
 	@Override

@@ -39,7 +39,8 @@ public class EmployeePaymentController {
 			@RequestParam(required = false) Instant until,
 			@RequestParam(required = false) String q,
 			@RequestParam(required = false) Instant before,
-			@RequestParam(required = false) UUID beforeId) {
+			@RequestParam(required = false) UUID beforeId,
+			@RequestParam(required = false) Integer offset) {
 		return PaymentResponses.PaymentFeedResponse.from(
 				feed.forEmployee(
 						caller.organizationId(),
@@ -49,7 +50,8 @@ public class EmployeePaymentController {
 						until,
 						q,
 						before,
-						beforeId));
+						beforeId,
+						offset));
 	}
 
 	@PostMapping("/devices")

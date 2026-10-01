@@ -13,6 +13,10 @@ public interface EmployeeRepository {
 
 	List<Employee> listByOrganization(UUID organizationId);
 
+	int count(UUID organizationId, String query);
+
+	List<Employee> search(UUID organizationId, String query, int limit, int offset);
+
 	Set<String> usernamesInOrganization(UUID organizationId);
 
 	Optional<Employee> findById(UUID employeeId);

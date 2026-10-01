@@ -20,7 +20,7 @@ import java.util.UUID;
 public class PaymentFeedService {
 
 	private static final int DEFAULT_LIMIT = 30;
-	private static final int MAX_LIMIT = 80;
+	private static final int MAX_LIMIT = 100;
 
 	private final OwnerAccountService owners;
 	private final EmployeeRepository employees;
@@ -42,9 +42,10 @@ public class PaymentFeedService {
 			String query,
 			String source,
 			Instant before,
-			UUID beforeId) {
+			UUID beforeId,
+			Integer offset) {
 		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
-		return page(workspace.organization().id(), clamp(limit), since, until, query, source, before, beforeId);
+		return page(workspace.organization().id(), clamp(limit), since, until, query, source, before, beforeId, clampOffset(offset));
 	}
 
 	@Transactional(readOnly = true)
@@ -56,12 +57,13 @@ public class PaymentFeedService {
 			Instant until,
 			String query,
 			Instant before,
-			UUID beforeId) {
+			UUID beforeId,
+			Integer offset) {
 		Employee employee = employees.findById(employeeId).orElseThrow();
 		Instant floor = LookbackDays.of(employee.lookbackDays()).floor(Instant.now());
 		Instant boundedSince = since == null || since.isBefore(floor) ? floor : since;
 		Instant boundedUntil = until != null && !until.isAfter(floor) ? floor : until;
-		return page(organizationId, clamp(limit), boundedSince, boundedUntil, query, null, before, beforeId);
+		return page(organizationId, clamp(limit), boundedSince, boundedUntil, query, null, before, beforeId, clampOffset(offset));
 	}
 
 	private Page page(
@@ -72,10 +74,11 @@ public class PaymentFeedService {
 			String query,
 			String source,
 			Instant before,
-			UUID beforeId) {
+			UUID beforeId,
+			int offset) {
 		PaymentTally tally = notices.tally(organizationId, since, until, query, source);
 		List<PaymentNotice> rows = notices.search(
-				organizationId, limit, since, until, query, source, before, beforeId);
+				organizationId, limit, since, until, query, source, before, beforeId, offset);
 		BigDecimal total = tally.totalAmount() == null ? BigDecimal.ZERO : tally.totalAmount();
 		return new Page(rows, tally.count(), total);
 	}
@@ -85,6 +88,13 @@ public class PaymentFeedService {
 			return DEFAULT_LIMIT;
 		}
 		return Math.min(limit, MAX_LIMIT);
+	}
+
+	private static int clampOffset(Integer offset) {
+		if (offset == null || offset < 0) {
+			return 0;
+		}
+		return Math.min(offset, 20_000);
 	}
 
 	public record Page(List<PaymentNotice> notices, long count, BigDecimal totalAmount) {

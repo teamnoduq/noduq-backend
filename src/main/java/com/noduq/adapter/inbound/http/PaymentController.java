@@ -48,7 +48,8 @@ public class PaymentController {
 			@RequestParam(required = false) String q,
 			@RequestParam(required = false) String source,
 			@RequestParam(required = false) Instant before,
-			@RequestParam(required = false) UUID beforeId) {
+			@RequestParam(required = false) UUID beforeId,
+			@RequestParam(required = false) Integer offset) {
 		return PaymentResponses.PaymentFeedResponse.from(
 				feed.forOwner(
 						OwnerAuth.userId(authentication),
@@ -58,7 +59,8 @@ public class PaymentController {
 						q,
 						source,
 						before,
-						beforeId));
+						beforeId,
+						offset));
 	}
 
 	/** The owner's phone forwards what the bank sent it; this decides whether it counts. */

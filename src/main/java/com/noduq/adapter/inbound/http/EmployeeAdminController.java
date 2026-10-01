@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -27,8 +28,20 @@ public class EmployeeAdminController {
 	}
 
 	@GetMapping
-	List<IdentityResponses.EmployeeResponse> list(Authentication authentication) {
-		return employees.list(OwnerAuth.userId(authentication)).stream().map(IdentityResponses.EmployeeResponse::from).toList();
+	Object list(
+			Authentication authentication,
+			@RequestParam(required = false) Integer limit,
+			@RequestParam(required = false) Integer offset,
+			@RequestParam(required = false) String q) {
+		if (limit == null && offset == null && (q == null || q.isBlank())) {
+			return employees.list(OwnerAuth.userId(authentication)).stream()
+					.map(IdentityResponses.EmployeeResponse::from)
+					.toList();
+		}
+		var page = employees.page(OwnerAuth.userId(authentication), q, limit, offset);
+		return new EmployeePageResponse(
+				page.employees().stream().map(IdentityResponses.EmployeeResponse::from).toList(),
+				page.count());
 	}
 
 	@PostMapping
@@ -57,6 +70,9 @@ public class EmployeeAdminController {
 	@DeleteMapping("/{id}")
 	void delete(Authentication authentication, @PathVariable UUID id) {
 		employees.delete(OwnerAuth.userId(authentication), id);
+	}
+
+	public record EmployeePageResponse(List<IdentityResponses.EmployeeResponse> employees, int count) {
 	}
 
 	public record CreateEmployeeRequest(@NotBlank String displayName, String username, UUID branchId) {
