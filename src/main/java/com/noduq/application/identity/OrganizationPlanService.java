@@ -11,6 +11,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
@@ -20,7 +22,7 @@ public class OrganizationPlanService {
 
 	private static final Logger log = LoggerFactory.getLogger(OrganizationPlanService.class);
 
-	private static final Duration ACTIVATE_BRIDGE = Duration.ofDays(35);
+	private static final ZoneId COLOMBIA = ZoneId.of("America/Bogota");
 
 	private final OrganizationPlanRepository plans;
 	private final GmailConnectionRepository gmail;
@@ -59,7 +61,7 @@ public class OrganizationPlanService {
 				organizationId,
 				resolved,
 				"active",
-				Instant.now().plus(ACTIVATE_BRIDGE),
+				ZonedDateTime.now(COLOMBIA).plusMonths(1).toInstant(),
 				null,
 				"client");
 		plans.upsert(plan);
