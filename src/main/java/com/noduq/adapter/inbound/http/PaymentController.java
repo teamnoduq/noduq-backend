@@ -120,9 +120,14 @@ public class PaymentController {
 	@GetMapping("/stats")
 	PaymentStatsService.Report stats(
 			Authentication authentication,
-			@RequestParam int year,
-			@RequestParam(required = false) Integer month) {
-		return stats.forOwner(OwnerAuth.userId(authentication), year, month);
+			@RequestParam(required = false) Integer year,
+			@RequestParam(required = false) Integer month,
+			@RequestParam(required = false, defaultValue = "") String scope) {
+		return stats.forOwner(
+				OwnerAuth.userId(authentication),
+				year,
+				month,
+				"all".equalsIgnoreCase(scope));
 	}
 
 	@GetMapping("/history")

@@ -42,18 +42,41 @@ public class PaymentStatsService {
 	}
 
 	@Transactional(readOnly = true)
-	public Report forOwner(UUID profileId, int year, Integer month) {
-		if (year < 2000 || year > 2100 || (month != null && (month < 1 || month > 12))) {
-			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Periodo inválido");
-		}
+	public Report forOwner(UUID profileId, Integer year, Integer month, boolean allTime) {
 		UUID organizationId = owners.requireWorkspace(profileId).organization().id();
 		LocalDate today = LocalDate.now(BOGOTA);
+		if (allTime) {
+			return all(organizationId, today);
+		}
+		if (year == null || year < 2000 || year > 2100 || (month != null && (month < 1 || month > 12))) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Periodo inválido");
+		}
 		Window window = window(year, month, today);
 		Window previous = window.previous();
 		List<PaymentBucket> current = notices.buckets(organizationId, window.since(), window.until(), month == null);
 		List<PaymentBucket> prior = notices.buckets(organizationId, previous.since(), previous.until(), month == null);
 		long payers = notices.distinctPayers(organizationId, window.since(), window.until());
-		return build(month == null ? "month" : "day", year, month, window, current, prior, payers);
+		Report report = build(month == null ? "month" : "day", year, month, window, current, prior, payers);
+		if (month != null) {
+			return report;
+		}
+		List<PaymentBucket> days = notices.buckets(organizationId, window.since(), window.until(), false);
+		return report.withDays(extremeDay(days, true, false), extremeDay(days, false, false));
+	}
+
+	private Report all(UUID organizationId, LocalDate today) {
+		LocalDate first = notices.earliest(organizationId)
+				.map(instant -> instant.atZone(BOGOTA).toLocalDate())
+				.orElse(today);
+		if (first.isAfter(today)) {
+			first = today;
+		}
+		Window window = new Window(first.withDayOfMonth(1), today, false);
+		List<PaymentBucket> months = notices.buckets(organizationId, window.since(), window.until(), true);
+		List<PaymentBucket> days = notices.buckets(organizationId, window.since(), window.until(), false);
+		long payers = notices.distinctPayers(organizationId, window.since(), window.until());
+		Report report = build("all", today.getYear(), null, window, months, List.of(), payers);
+		return report.withDays(extremeDay(days, true, true), extremeDay(days, false, true));
 	}
 
 	static Report build(
@@ -90,12 +113,13 @@ public class PaymentStatsService {
 				PaymentBucket found = byStart.get(cursor.atDay(1));
 				long count = found == null ? 0 : found.count();
 				BigDecimal amount = found == null ? BigDecimal.ZERO : found.amount();
-				points.add(new Point(
-						cursor.toString(),
-						capitalize(SHORT[cursor.getMonthValue()]),
-						MONTHS[cursor.getMonthValue()],
-						count,
-						amount));
+				boolean acrossYears = "all".equals(grain);
+				String shortMonth = capitalize(SHORT[cursor.getMonthValue()]);
+				String label = acrossYears ? shortMonth + " " + (cursor.getYear() % 100) : shortMonth;
+				String detail = acrossYears
+						? MONTHS[cursor.getMonthValue()] + " " + cursor.getYear()
+						: MONTHS[cursor.getMonthValue()];
+				points.add(new Point(cursor.toString(), label, detail, count, amount));
 				cursor = cursor.plusMonths(1);
 			}
 		}
@@ -144,6 +168,8 @@ public class PaymentStatsService {
 				changePercent(amount, previousAmount),
 				peak,
 				low,
+				null,
+				null,
 				withSales,
 				Math.max(0, buckets - withSales),
 				points);
@@ -171,6 +197,38 @@ public class PaymentStatsService {
 			end = period.atEndOfMonth();
 		}
 		return new Window(start, end, false);
+	}
+
+	/** The day with the highest or lowest total, among days that actually had a payment. */
+	static Point extremeDay(List<PaymentBucket> days, boolean peak, boolean withYear) {
+		PaymentBucket chosen = null;
+		for (PaymentBucket bucket : days) {
+			if (bucket.start() == null || bucket.count() <= 0 || bucket.amount() == null) {
+				continue;
+			}
+			if (chosen == null) {
+				chosen = bucket;
+				continue;
+			}
+			int compared = bucket.amount().compareTo(chosen.amount());
+			if (peak ? compared > 0 : compared < 0) {
+				chosen = bucket;
+			}
+		}
+		if (chosen == null || chosen.start() == null) {
+			return null;
+		}
+		LocalDate day = chosen.start();
+		String detail = day.getDayOfMonth() + " " + SHORT[day.getMonthValue()];
+		if (withYear) {
+			detail = detail + " " + day.getYear();
+		}
+		return new Point(
+				day.toString(),
+				Integer.toString(day.getDayOfMonth()),
+				detail,
+				chosen.count(),
+				chosen.amount());
 	}
 
 	static Double changePercent(long current, long previous) {
@@ -247,8 +305,35 @@ public class PaymentStatsService {
 			Double amountChangePercent,
 			Point peak,
 			Point low,
+			Point dayPeak,
+			Point dayLow,
 			int bucketsWithSales,
 			int bucketsEmpty,
 			List<Point> points) {
+
+		Report withDays(Point nextDayPeak, Point nextDayLow) {
+			return new Report(
+					grain,
+					year,
+					month,
+					bucketCount,
+					count,
+					amount,
+					uniquePayers,
+					averageCount,
+					averageAmount,
+					averagePerPayment,
+					previousCount,
+					previousAmount,
+					countChangePercent,
+					amountChangePercent,
+					peak,
+					low,
+					nextDayPeak,
+					nextDayLow,
+					bucketsWithSales,
+					bucketsEmpty,
+					points);
+		}
 	}
 }

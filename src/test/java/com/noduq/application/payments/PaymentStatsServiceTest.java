@@ -42,6 +42,27 @@ class PaymentStatsServiceTest {
 	}
 
 	@Test
+	void theBestAndWorstDayFollowTheTotal() {
+		PaymentStatsService.Point best = PaymentStatsService.extremeDay(
+				List.of(
+						new PaymentBucket(LocalDate.of(2026, 1, 2), 4, new BigDecimal("1000")),
+						new PaymentBucket(LocalDate.of(2026, 6, 9), 1, new BigDecimal("9000")),
+						new PaymentBucket(LocalDate.of(2026, 6, 10), 8, new BigDecimal("500"))),
+				true,
+				true);
+		PaymentStatsService.Point worst = PaymentStatsService.extremeDay(
+				List.of(
+						new PaymentBucket(LocalDate.of(2026, 1, 2), 4, new BigDecimal("1000")),
+						new PaymentBucket(LocalDate.of(2026, 6, 10), 8, new BigDecimal("500"))),
+				false,
+				false);
+
+		assertEquals("2026-06-09", best.key());
+		assertEquals("9 jun 2026", best.detail());
+		assertEquals("10 jun", worst.detail());
+	}
+
+	@Test
 	void aPastYearIncludesEveryMonth() {
 		PaymentStatsService.Window window = PaymentStatsService.window(2025, null, LocalDate.of(2026, 9, 28));
 		assertEquals(LocalDate.of(2025, 1, 1), window.start());
