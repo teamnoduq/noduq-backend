@@ -55,6 +55,12 @@ public interface PaymentNoticeRepository {
 	/** Oldest moment on a stored notice, the first payment this shop actually kept. */
 	Optional<Instant> earliest(UUID organizationId);
 
+	/** How many payments the shop has, and when the newest one was stored. */
+	Stock stock(UUID organizationId);
+
+	record Stock(long count, Instant latest) {
+	}
+
 	/**
 	 * Payments with an amount, grouped by Bogota day or by Bogota month.
 	 * {@code start} on a month bucket is the first day of that month.

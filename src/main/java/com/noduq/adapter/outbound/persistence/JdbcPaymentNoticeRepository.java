@@ -5,6 +5,7 @@ import com.noduq.domain.payments.PaymentNotice;
 import com.noduq.domain.payments.PaymentSource;
 import com.noduq.domain.payments.PaymentTally;
 import com.noduq.domain.payments.port.PaymentNoticeRepository;
+import com.noduq.domain.payments.port.PaymentNoticeRepository.Stock;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -164,6 +165,21 @@ public class JdbcPaymentNoticeRepository implements PaymentNoticeRepository {
 				Timestamp.class,
 				organizationId);
 		return stamp == null ? Optional.empty() : Optional.of(stamp.toInstant());
+	}
+
+	@Override
+	public Stock stock(UUID organizationId) {
+		return jdbc.queryForObject(
+				"""
+						select count(*)::bigint, max(created_at)
+						from payment_notices
+						where organization_id = ?
+						""",
+				(rs, ignored) -> {
+					Timestamp latest = rs.getTimestamp(2);
+					return new Stock(rs.getLong(1), latest == null ? null : latest.toInstant());
+				},
+				organizationId);
 	}
 
 	private static final String DAY_BUCKETS = """

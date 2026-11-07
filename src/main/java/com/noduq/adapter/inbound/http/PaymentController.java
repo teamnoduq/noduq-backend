@@ -151,7 +151,9 @@ public class PaymentController {
 	}
 
 	private HistoryResponse present(Authentication authentication, PaymentHistoryImport row) {
-		return HistoryResponse.from(row, history.earliest(OwnerAuth.userId(authentication)));
+		java.util.UUID userId = OwnerAuth.userId(authentication);
+		var stock = history.stock(userId);
+		return HistoryResponse.from(row, history.earliest(userId), stock.count(), stock.latest());
 	}
 
 	public record HistoryResponse(
@@ -163,11 +165,18 @@ public class PaymentController {
 			int stored,
 			int percent,
 			Instant finishedAt,
-			Instant earliestAt) {
+			Instant earliestAt,
+			long paymentCount,
+			Instant lastStoredAt) {
 
-		static HistoryResponse from(PaymentHistoryImport row, Instant earliestAt) {
+		static HistoryResponse from(
+				PaymentHistoryImport row,
+				Instant earliestAt,
+				long paymentCount,
+				Instant lastStoredAt) {
 			if (row == null) {
-				return new HistoryResponse("available", null, null, 0, 0, 0, 0, null, earliestAt);
+				return new HistoryResponse(
+						"available", null, null, 0, 0, 0, 0, null, earliestAt, paymentCount, lastStoredAt);
 			}
 			return new HistoryResponse(
 					row.status(),
@@ -178,7 +187,9 @@ public class PaymentController {
 					row.storedMessages(),
 					row.percent(),
 					row.finishedAt(),
-					earliestAt);
+					earliestAt,
+					paymentCount,
+					lastStoredAt);
 		}
 	}
 }

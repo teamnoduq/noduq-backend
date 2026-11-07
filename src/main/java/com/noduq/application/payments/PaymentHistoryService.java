@@ -73,6 +73,11 @@ public class PaymentHistoryService {
 		return notices.earliest(workspace.organization().id()).orElse(null);
 	}
 
+	public com.noduq.domain.payments.port.PaymentNoticeRepository.Stock stock(java.util.UUID profileId) {
+		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
+		return notices.stock(workspace.organization().id());
+	}
+
 	public PaymentHistoryImport status(java.util.UUID profileId) {
 		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
 		workspace.requireOwner();
