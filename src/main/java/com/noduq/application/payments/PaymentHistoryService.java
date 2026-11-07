@@ -106,6 +106,9 @@ public class PaymentHistoryService {
 	public PaymentHistoryImport start(java.util.UUID profileId) {
 		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
 		workspace.requireOwner();
+		// La migración del correo no arranca. Se devuelve el estado que ya había.
+		return history.find(workspace.organization().id()).orElse(null);
+		/*
 		java.util.UUID organizationId = workspace.organization().id();
 		if (!plans.allowsEmail(organizationId)) {
 			throw IdentityException.planRequired();
@@ -133,6 +136,7 @@ public class PaymentHistoryService {
 				null);
 		persist(running);
 		return running;
+		*/
 	}
 
 	/**
@@ -142,15 +146,24 @@ public class PaymentHistoryService {
 	public PaymentHistoryImport pullNext(java.util.UUID profileId) {
 		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
 		workspace.requireOwner();
+		// Un paso del histórico ya no abre el buzón.
+		return history.find(workspace.organization().id()).orElse(null);
+		/*
 		java.util.UUID organizationId = workspace.organization().id();
 		if (!plans.allowsEmail(organizationId)) {
 			throw IdentityException.planRequired();
 		}
 		return advanceOne(organizationId, SAVE_BATCH);
+		*/
 	}
 
 	/** Keeps every running import moving. The phone is only a window onto the progress. */
 	public void advanceRunning(Duration budget) {
+		// El worker ya no avanza la migración. budget queda en la firma.
+		if (budget.isNegative()) {
+			return;
+		}
+		/*
 		Instant deadline = Instant.now().plus(budget);
 		for (java.util.UUID organizationId : history.runningIds()) {
 			if (!Instant.now().isBefore(deadline)) {
@@ -162,6 +175,7 @@ public class PaymentHistoryService {
 				log.warn("History advance failed org={}: {}", organizationId, ex.toString());
 			}
 		}
+		*/
 	}
 
 	private void advance(java.util.UUID organizationId, Instant deadline, int saveBatch) {

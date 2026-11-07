@@ -82,6 +82,19 @@ public class PaymentIngestService {
 		return ingestSms(workspace.organization().id(), sender, body, sentAt, true);
 	}
 
+	/**
+	 * A receipt already sitting in the phone's inbox. Same fingerprint as a live SMS, so a
+	 * payment that already landed is skipped. The counter is not rung.
+	 */
+	public Ingested ingestOwnerHistoricalSms(UUID profileId, String sender, String body, Instant sentAt) {
+		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
+		workspace.requireOwner();
+		if (!plans.allowsSms(workspace.organization().id())) {
+			return new Ingested(Outcome.IGNORED_NO_PLAN, null);
+		}
+		return ingestHistoricalSms(workspace.organization().id(), sender, body, sentAt);
+	}
+
 	/** A receipt from the phone's old inbox. The counter is not rung; the date on the message is kept. */
 	public Ingested ingestHistoricalSms(
 			UUID organizationId,
@@ -90,6 +103,9 @@ public class PaymentIngestService {
 			Instant sentAt) {
 		if (!historicalMoment(sentAt)) {
 			return new Ingested(Outcome.IGNORED_SENDER, null);
+		}
+		if (beforeThisShop(organizationId, sentAt)) {
+			return new Ingested(Outcome.IGNORED_BEFORE_SHOP, null);
 		}
 		return ingestSms(organizationId, sender, body, sentAt, false);
 	}

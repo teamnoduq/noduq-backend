@@ -17,6 +17,9 @@ public class PaymentHistoryWorker {
 
 	@Scheduled(fixedDelayString = "${noduq.history.tick-ms:2000}")
 	public void tick() {
-		history.advanceRunning(Duration.ofSeconds(12));
+		// La migración del correo está apagada. No se recorre el buzón.
+		if (false) {
+			history.advanceRunning(Duration.ofSeconds(12));
+		}
 	}
 }

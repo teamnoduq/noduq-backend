@@ -88,6 +88,17 @@ public class GmailLinkService {
 	}
 
 	public String authorizationUrl(UUID profileId, boolean web) {
+		// Nadie abre el consentimiento de Gmail. El enlace de abajo queda en el código.
+		owners.findWorkspace(profileId).ifPresent(OwnerWorkspace::requireOwner);
+		if (web) {
+			throw IdentityException.validation(
+					"GMAIL_OFF",
+					"NODUQ ya no conecta Gmail. Los pagos entran por SMS.");
+		}
+		throw IdentityException.validation(
+				"GMAIL_OFF",
+				"NODUQ ya no conecta Gmail. Los pagos entran por SMS.");
+		/*
 		if (!gmail.configured()) {
 			throw IdentityException.validation(
 					"GMAIL_NOT_CONFIGURED",
@@ -95,10 +106,18 @@ public class GmailLinkService {
 		}
 		owners.findWorkspace(profileId).ifPresent(OwnerWorkspace::requireOwner);
 		return gmail.authorizationUrl(sign(profileId, web));
+		*/
 	}
 
 	public String finish(String code, String state) {
 		SignedState signed = readState(state);
+		// El callback ya no cambia el código por un token ni lee el buzón.
+		String target = signed.web() ? webRedirect : appRedirect;
+		if (code == null || code.isBlank()) {
+			return target;
+		}
+		return target;
+		/*
 		UUID profileId = signed.profileId();
 		GmailMailbox.Tokens tokens = gmail.exchange(code);
 		if (tokens.accessToken() == null) {
@@ -140,6 +159,7 @@ public class GmailLinkService {
 		}
 		String target = signed.web() ? webRedirect : appRedirect;
 		return target.contains("?") ? target + "&gmail=ok" : target + "?gmail=ok";
+		*/
 	}
 
 	public void disconnect(UUID profileId) {
@@ -152,6 +172,9 @@ public class GmailLinkService {
 	}
 
 	public void pollAll() {
+		// La lectura en vivo del buzón está apagada.
+		return;
+		/*
 		if (!gmail.configured()) {
 			return;
 		}
@@ -162,6 +185,7 @@ public class GmailLinkService {
 				log.warn("Gmail poll failed org={}: {}", connection.organizationId(), ex.toString());
 			}
 		}
+		*/
 	}
 
 	private void poll(GmailConnection connection) {

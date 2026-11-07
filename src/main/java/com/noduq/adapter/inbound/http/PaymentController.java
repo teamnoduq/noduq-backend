@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -77,6 +78,42 @@ public class PaymentController {
 	}
 
 	public record SmsRequest(@NotBlank String sender, @NotBlank String message, Instant sentAt) {
+	}
+
+	/**
+	 * Quiet catch-up of bank texts already on the phone. A receipt that is already stored
+	 * stays one row. Nothing rings the counter.
+	 */
+	@PostMapping("/sms/backfill")
+	BackfillResponse backfill(Authentication authentication, @Valid @RequestBody BackfillRequest body) {
+		List<SmsRequest> messages = body.messages() == null ? List.of() : body.messages();
+		if (messages.size() > 80) {
+			throw com.noduq.domain.identity.IdentityException.validation(
+					"SMS_BATCH",
+					"Demasiados mensajes de una vez.");
+		}
+		int stored = 0;
+		int duplicate = 0;
+		int ignored = 0;
+		for (SmsRequest message : messages) {
+			PaymentIngestService.Outcome outcome = ingest.ingestOwnerHistoricalSms(
+					OwnerAuth.userId(authentication),
+					message.sender(),
+					message.message(),
+					message.sentAt()).outcome();
+			switch (outcome) {
+				case STORED -> stored++;
+				case DUPLICATE -> duplicate++;
+				default -> ignored++;
+			}
+		}
+		return new BackfillResponse(stored, duplicate, ignored);
+	}
+
+	public record BackfillRequest(List<@Valid SmsRequest> messages) {
+	}
+
+	public record BackfillResponse(int stored, int duplicate, int ignored) {
 	}
 
 	@GetMapping("/stats")

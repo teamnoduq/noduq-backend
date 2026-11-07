@@ -19,13 +19,16 @@ public class GmailPaymentPoller {
 
 	@Scheduled(fixedDelayString = "${noduq.gmail.poll-ms:45000}")
 	public void poll() {
-		if (!gmail.configured()) {
-			return;
-		}
-		try {
-			gmail.pollAll();
-		} catch (RuntimeException ex) {
-			log.warn("Gmail poller stopped early: {}", ex.toString());
+		// SMS es la única fuente. El poller sigue registrado, pero no lee Gmail.
+		if (false) {
+			if (!gmail.configured()) {
+				return;
+			}
+			try {
+				gmail.pollAll();
+			} catch (RuntimeException ex) {
+				log.warn("Gmail poller stopped early: {}", ex.toString());
+			}
 		}
 	}
 }
