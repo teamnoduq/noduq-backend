@@ -92,7 +92,9 @@ public class PaymentHistoryLive extends TextWebSocketHandler {
 				? notices.earliest(row.organizationId()).orElse(null)
 				: null;
 		try {
-			String body = json.writeValueAsString(PaymentController.HistoryResponse.from(row, earliest));
+			PaymentNoticeRepository.Stock stock = notices.stock(row.organizationId());
+			String body = json.writeValueAsString(PaymentController.HistoryResponse.from(
+					row, earliest, stock.count(), stock.latest()));
 			synchronized (session) {
 				if (session.isOpen()) {
 					session.sendMessage(new TextMessage(body));
