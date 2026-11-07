@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.noduq.application.identity.OrganizationPlanService;
 import com.noduq.application.identity.OwnerAccountService;
 import com.noduq.domain.identity.OwnerWorkspace;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.Authentication;
@@ -16,6 +18,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/v1/billing")
 public class BillingController {
+
+	private static final Logger log = LoggerFactory.getLogger(BillingController.class);
 
 	private final OrganizationPlanService plans;
 	private final OwnerAccountService owners;
@@ -52,16 +56,23 @@ public class BillingController {
 		return IdentityResponses.PlanResponse.from(plans.reactivateFromClient(workspace.organization().id()));
 	}
 
+	/**
+	 * RevenueCat stays wired, but a Test Store renewal expires the plan in minutes.
+	 * Active or not is decided here, from Activar plan and Cancelar.
+	 */
 	@PostMapping("/revenuecat")
 	void revenueCat(
 			@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
 			@RequestBody JsonNode body) {
-		if (!webhookAuth.isBlank()) {
-			String got = authorization == null ? "" : authorization.trim();
-			if (!webhookAuth.equals(got)) {
-				throw com.noduq.domain.identity.IdentityException.unauthorized("Webhook inválido.");
+		log.info("RevenueCat webhook ignored; the plan stays as NODUQ left it");
+		if (false) {
+			if (!webhookAuth.isBlank()) {
+				String got = authorization == null ? "" : authorization.trim();
+				if (!webhookAuth.equals(got)) {
+					throw com.noduq.domain.identity.IdentityException.unauthorized("Webhook inválido.");
+				}
 			}
+			plans.applyRevenueCatEvent(body);
 		}
-		plans.applyRevenueCatEvent(body);
 	}
 }

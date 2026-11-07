@@ -87,12 +87,24 @@ public class PaymentIngestService {
 	 * payment that already landed is skipped. The counter is not rung.
 	 */
 	public Ingested ingestOwnerHistoricalSms(UUID profileId, String sender, String body, Instant sentAt) {
+		return ingestHistoricalSms(ownerReadyForSms(profileId), sender, body, sentAt);
+	}
+
+	/**
+	 * The inbox walk must stop when the plan is off. Counting those texts as "ignored"
+	 * lets the phone mark the inbox finished and never read them again.
+	 */
+	public void requireOwnerSmsPlan(UUID profileId) {
+		ownerReadyForSms(profileId);
+	}
+
+	private UUID ownerReadyForSms(UUID profileId) {
 		OwnerWorkspace workspace = owners.requireWorkspace(profileId);
 		workspace.requireOwner();
 		if (!plans.allowsSms(workspace.organization().id())) {
-			return new Ingested(Outcome.IGNORED_NO_PLAN, null);
+			throw IdentityException.planRequired();
 		}
-		return ingestHistoricalSms(workspace.organization().id(), sender, body, sentAt);
+		return workspace.organization().id();
 	}
 
 	/** A receipt from the phone's old inbox. The counter is not rung; the date on the message is kept. */

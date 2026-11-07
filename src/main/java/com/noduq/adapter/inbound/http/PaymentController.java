@@ -92,6 +92,7 @@ public class PaymentController {
 					"SMS_BATCH",
 					"Demasiados mensajes de una vez.");
 		}
+		ingest.requireOwnerSmsPlan(OwnerAuth.userId(authentication));
 		int stored = 0;
 		int duplicate = 0;
 		int ignored = 0;
