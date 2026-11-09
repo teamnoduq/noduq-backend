@@ -1,6 +1,7 @@
 package com.noduq.adapter.inbound.http;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.noduq.application.identity.EmployeeSessionService;
 import com.noduq.application.identity.OwnerAccountService;
 import com.noduq.domain.payments.PaymentHistoryImport;
 import com.noduq.domain.payments.port.PaymentHistoryRepository;
@@ -19,6 +20,8 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
 
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
@@ -71,6 +74,21 @@ public class PaymentHistoryLive extends TextWebSocketHandler {
 		}
 	}
 
+	/** Tells every open desk of this shop that a payment just landed. */
+	public void paymentArrived(UUID organizationId) {
+		if (organizationId == null) {
+			return;
+		}
+		Set<WebSocketSession> open = sessions.get(organizationId);
+		if (open == null || open.isEmpty()) {
+			return;
+		}
+		TextMessage message = new TextMessage("{\"event\":\"payment\"}");
+		for (WebSocketSession session : open) {
+			sendRaw(session, message);
+		}
+	}
+
 	public void publish(PaymentHistoryImport row) {
 		if (row == null) {
 			return;
@@ -105,6 +123,21 @@ public class PaymentHistoryLive extends TextWebSocketHandler {
 		}
 	}
 
+	private void sendRaw(WebSocketSession session, TextMessage message) {
+		if (!session.isOpen()) {
+			return;
+		}
+		try {
+			synchronized (session) {
+				if (session.isOpen()) {
+					session.sendMessage(message);
+				}
+			}
+		} catch (Exception ex) {
+			log.info("Payment socket closed: {}", ex.toString());
+		}
+	}
+
 	private static UUID organizationId(WebSocketSession session) {
 		Object value = session.getAttributes().get("organizationId");
 		return value instanceof UUID id ? id : null;
@@ -123,10 +156,12 @@ public class PaymentHistoryLive extends TextWebSocketHandler {
 
 		private final JwtDecoder decoder;
 		private final OwnerAccountService owners;
+		private final EmployeeSessionService employees;
 
-		Handshake(JwtDecoder decoder, OwnerAccountService owners) {
+		Handshake(JwtDecoder decoder, OwnerAccountService owners, EmployeeSessionService employees) {
 			this.decoder = decoder;
 			this.owners = owners;
+			this.employees = employees;
 		}
 
 		@Override
@@ -135,19 +170,53 @@ public class PaymentHistoryLive extends TextWebSocketHandler {
 				@NonNull ServerHttpResponse response,
 				@NonNull org.springframework.web.socket.WebSocketHandler wsHandler,
 				@NonNull Map<String, Object> attributes) {
-			String header = request.getHeaders().getFirst("Authorization");
-			if (header == null || header.length() < 8 || !header.regionMatches(true, 0, "Bearer ", 0, 7)) {
+			String token = token(request);
+			if (token == null) {
 				response.setStatusCode(HttpStatus.UNAUTHORIZED);
 				return false;
 			}
 			try {
-				UUID userId = UUID.fromString(decoder.decode(header.substring(7).trim()).getSubject());
+				UUID userId = UUID.fromString(decoder.decode(token).getSubject());
 				attributes.put("organizationId", owners.requireWorkspace(userId).organization().id());
 				return true;
-			} catch (RuntimeException ex) {
-				response.setStatusCode(HttpStatus.UNAUTHORIZED);
-				return false;
+			} catch (RuntimeException ownerFailed) {
+				try {
+					attributes.put(
+							"organizationId",
+							employees.authenticate(token).workspace().organization().id());
+					return true;
+				} catch (RuntimeException employeeFailed) {
+					response.setStatusCode(HttpStatus.UNAUTHORIZED);
+					return false;
+				}
 			}
+		}
+
+		private static String token(ServerHttpRequest request) {
+			String header = request.getHeaders().getFirst("Authorization");
+			if (header != null && header.length() >= 8 && header.regionMatches(true, 0, "Bearer ", 0, 7)) {
+				String value = header.substring(7).trim();
+				if (!value.isEmpty()) {
+					return value;
+				}
+			}
+			String query = request.getURI().getRawQuery();
+			if (query == null || query.isBlank()) {
+				return null;
+			}
+			for (String part : query.split("&")) {
+				int cut = part.indexOf('=');
+				if (cut <= 0) {
+					continue;
+				}
+				String name = URLDecoder.decode(part.substring(0, cut), StandardCharsets.UTF_8);
+				if (!"access_token".equals(name)) {
+					continue;
+				}
+				String value = URLDecoder.decode(part.substring(cut + 1), StandardCharsets.UTF_8).trim();
+				return value.isEmpty() ? null : value;
+			}
+			return null;
 		}
 
 		@Override

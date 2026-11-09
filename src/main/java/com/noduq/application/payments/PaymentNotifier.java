@@ -1,5 +1,6 @@
 package com.noduq.application.payments;
 
+import com.noduq.adapter.inbound.http.PaymentHistoryLive;
 import com.noduq.domain.payments.Device;
 import com.noduq.domain.payments.PaymentAnnouncement;
 import com.noduq.domain.payments.PaymentNotice;
@@ -21,13 +22,16 @@ public class PaymentNotifier {
 
 	private final DeviceRepository devices;
 	private final PushSender push;
+	private final PaymentHistoryLive live;
 
-	public PaymentNotifier(DeviceRepository devices, PushSender push) {
+	public PaymentNotifier(DeviceRepository devices, PushSender push, PaymentHistoryLive live) {
 		this.devices = devices;
 		this.push = push;
+		this.live = live;
 	}
 
 	public void announce(PaymentNotice notice) {
+		live.paymentArrived(notice.organizationId());
 		if (!push.enabled()) {
 			log.info("Push disabled, notice {} only stored", notice.id());
 			return;
