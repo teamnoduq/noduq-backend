@@ -31,7 +31,7 @@ public class PaymentNotifier {
 	}
 
 	public void announce(PaymentNotice notice) {
-		live.paymentArrived(notice.organizationId());
+		live.paymentArrived(notice);
 		if (!push.enabled()) {
 			log.info("Push disabled, notice {} only stored", notice.id());
 			return;

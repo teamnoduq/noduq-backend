@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.noduq.application.identity.EmployeeSessionService;
 import com.noduq.application.identity.OwnerAccountService;
 import com.noduq.domain.payments.PaymentHistoryImport;
+import com.noduq.domain.payments.PaymentNotice;
 import com.noduq.domain.payments.port.PaymentHistoryRepository;
 import com.noduq.domain.payments.port.PaymentNoticeRepository;
 import org.slf4j.Logger;
@@ -23,6 +24,7 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -75,17 +77,27 @@ public class PaymentHistoryLive extends TextWebSocketHandler {
 	}
 
 	/** Tells every open desk of this shop that a payment just landed. */
-	public void paymentArrived(UUID organizationId) {
-		if (organizationId == null) {
+	public void paymentArrived(PaymentNotice notice) {
+		if (notice == null || notice.organizationId() == null) {
 			return;
 		}
-		Set<WebSocketSession> open = sessions.get(organizationId);
+		Set<WebSocketSession> open = sessions.get(notice.organizationId());
 		if (open == null || open.isEmpty()) {
 			return;
 		}
-		TextMessage message = new TextMessage("{\"event\":\"payment\"}");
-		for (WebSocketSession session : open) {
-			sendRaw(session, message);
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("event", "payment");
+		payload.put("id", notice.id().toString());
+		if (notice.amount() != null) {
+			payload.put("amount", notice.amount().stripTrailingZeros().longValue());
+		}
+		try {
+			TextMessage message = new TextMessage(json.writeValueAsString(payload));
+			for (WebSocketSession session : open) {
+				sendRaw(session, message);
+			}
+		} catch (Exception ex) {
+			log.info("Payment socket skipped: {}", ex.toString());
 		}
 	}
 
